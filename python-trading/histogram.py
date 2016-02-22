@@ -25,7 +25,6 @@ def main():
     # Plot a histogram
     daily_returns.hist(bins=20)
 
-
     # Get the mean and standard deviation
     mean = daily_returns["SPY"].mean()
     print "mean: ", mean
@@ -40,6 +39,16 @@ def main():
     # Compute Kurtosis
     print "kurtosis: ", daily_returns["SPY"].kurtosis()
 
+    # Plot double histogram
+    dates = pd.date_range("2009-01-01", "2012-12-31")
+    symbols = ["SPY", "XOM"]
+    df = get_data(symbols, dates)
+    plot_data(df)
+    daily_returns = compute_daily_returns(df)
+    plot_data(daily_returns, title="Daily Returns", ylabel="Daily Returns")
+    daily_returns["SPY"].hist(bins=20, label="SPY")
+    daily_returns["XOM"].hist(bins=20, label="XOM")
+    plt.show()
 
 if __name__ == "__main__":
     main()
