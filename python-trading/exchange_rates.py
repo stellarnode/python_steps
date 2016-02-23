@@ -2,8 +2,7 @@ import urllib2 as url
 import openpyxl as xl
 import json
 
-CURRENCY_LAYER_API_KEY = "96c83b8075825e87ee1b9f9e78209af5"
-API_ENDPOINT = "http://apilayer.net/api/"
+from currency_layer_api import CURRENCY_LAYER_API_KEY, API_ENDPOINT
 
 def main():
     wb = xl.load_workbook("excel/financial status_2016_test.xlsx", read_only=False)

@@ -3,4 +3,7 @@ google-python-exercises/
 python-trading/excel/
 ptyhon-trading/data/
 python-trading/oanda_api.py
+python-trading/quandl_api.py
+python-trading/currency_layer_api.py
+python-trading/exchange_rates.js
 python_fundamentals/prank/
