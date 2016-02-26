@@ -2,12 +2,9 @@ import urllib2 as url
 import openpyxl as xl
 import json
 
-import time
 from datetime import date, timedelta
-from dateutil.parser import parse
 
 from currency_layer_api import CURRENCY_LAYER_API_KEY, API_ENDPOINT
-import oanda_api
 
 def main():
     wb = xl.load_workbook("excel/financial status_2016_test.xlsx", read_only=False)
@@ -28,6 +25,7 @@ def main():
     else:
         print "Cannot find sheet Currencies"
         exit()
+
 
 def get_quotes_json(period="live", req_date=None):
     my_key = u"?access_key=" + CURRENCY_LAYER_API_KEY
@@ -53,6 +51,7 @@ def get_quotes_json(period="live", req_date=None):
         return result
     else:
         print "Could not fetch currency data."
+
 
 def update_monthly_quotes(sheet):
     print "Updating historical quotes..."
@@ -87,27 +86,6 @@ def update_monthly_quotes(sheet):
 
     print "Historical quotes updated."
 
-
-"""
-    endpoint = oanda_api.API_ENDPOINT
-    api_key = oanda_api.OANDA_API_KEY
-    params = u"USD.json?quote=RUB&quote=EUR&quote=CHF&quote=GBP&fields=all"
-    start_date = sheet["B8"].value.strftime("%Y-%m-%d")
-    end_date = date.today().strftime("%Y-%m-%d")
-    date_range = u"&start=" + start_date + u"&end=" + end_date
-    req_link = endpoint + params + date_range
-    req = url.Request(req_link)
-    req.add_header("Authorization", "Bearer " + api_key)
-    print req.headers
-    connection = url.urlopen(req)
-    response = connection.read()
-    connection.close()
-    result = json.loads(response)
-    print result
-    return {}
-"""
-
-
 def write_current_quotes_excel(data, sheet):
     print "Updating current quotes..."
     if "USDRUB" in data:
@@ -128,17 +106,6 @@ def print_previous_rates(sheet):
     print "=> previous EURUSD: ", sheet["D4"].value
     print "=> previous CHFUSD: ", sheet["E4"].value
     print "=> previous GBPUSD: ", sheet["F4"].value
-
-"""
-    first_date = sheet["B19"].value
-    month = timedelta(days=30)
-    if first_date.month + 1 > 12:
-        add_month = first_date.replace(year=first_date.year + 1)
-    else:
-        add_month = first_date.replace(month=first_date.month + 1)
-    print "time cell b8: ", first_date.isoformat()
-    print "add one month: ", add_month.isoformat()
-"""
 
 
 if __name__ == "__main__":
