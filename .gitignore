@@ -10,6 +10,8 @@ python-trading/currency_layer_api.py
 python-trading/currency_layer_api.pyc
 python-trading/exchange_rates.js
 python-trading/oanda_sandbox.ipynb
+python-trading/.ipynb_checkpoints/
+
 python_fundamentals/prank/
 
 .DS_Store
@@ -38,3 +40,4 @@ Python-for-Finance-Repo-udemy/
 python_for_finance_udemy/
 
 skillbox_analyst_course/
+.ipynb_checkpoints/
