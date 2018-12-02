@@ -28,5 +28,8 @@ for x in range(0, len(data)):
     else:
         stock_info[data[x-1]] = data[x]
 
-print(stock_info)
+ps = pd.Series(stock_info)
+
+print("Series:")
+print(ps)
 print("Volume: ", stock_info['Volume'])
