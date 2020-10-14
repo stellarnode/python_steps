@@ -84,6 +84,8 @@ print(start_formatted, end_formatted)
 
 ### ... for the month
 
+# Uncomment the following line and comment the line after it to get a specific month report and not the current month report
+# month_beginning = today.replace(month = 2, day = 1, hour = 0, minute = 0, second = 0, microsecond = 0)
 month_beginning = today.replace(day = 1, hour = 0, minute = 0, second = 0, microsecond = 0)
 month_start = create_datetime_search_str(month_beginning)
 

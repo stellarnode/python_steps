@@ -133,7 +133,7 @@ base_url = creds.BASE_URL_ORDERS
 data = requests.get('http://cetatenie.just.ro/index.php/ro/ordine/articol-11')
 soup = bs(data.text, 'html.parser')
 links = soup.findAll('a')
-clean_links = list(filter(lambda x: '2019.pdf' in x.attrs['href'] or '2020.pdf' in x.attrs['href'] or '2021.pdf' in x.attrs['href'], links))
+clean_links = list(filter(lambda x: '2019.pdf' in x.attrs['href'] or '2020.pdf' in x.attrs['href'] or '2021.pdf' in x.attrs['href'] or '2022.pdf' in x.attrs['href'], links))
 clean_hrefs = list(map(lambda x: x.get('href'), clean_links))
 
 orders_found = []
@@ -165,7 +165,7 @@ print('[DONE]' + '\n\n')
 orders_found_clean = set(orders_found)
 
 if len(orders_found_clean) == 0:
-    search_result = 'No matches found in current issued Orders for now.'
+    search_result = 'No matches found in current issued Orders.'
     print(search_result)
     text_to_send = text_to_send + search_result + '\n'
 else:

@@ -32,6 +32,7 @@ def format_str_zeros(x):
 
 year = str(today.year)
 month = format_str_zeros(today.month)
+# month = format_str_zeros(6)
 year_month = str(year) + '-' + month
 
 print('Current month: ', year_month)
@@ -69,7 +70,7 @@ def get_report_data(base_url, branch, year):
     return data
 
 def convert_id_to_type(x):
-    types = ['', 'One-on-One', '', 'Intro', 'Gift', 'Group']
+    types = ['', 'One-on-One', '', 'Intro', 'Gift', 'Group', 'Promo', 'Self Study', 'na', 'na', 'na']
     return types[x]
 
 def convert_id_to_subject(x):
@@ -198,6 +199,8 @@ text_to_send += '\n\n\nDaily paid lessons count:\n\n' + daily_paid_lessons_count
 
 # print(text_to_send)
 
+# select.to_excel('/Users/stellarnode/Desktop/lessons_regular_{}-{}.xls'.format(year, month))
+
 
 ### INTRO LESSONS REPORT
 
@@ -248,6 +251,8 @@ text_to_send += '\n\n\nDaily attended lessons count:\n\n' + daily_attended_lesso
 
 
 print(text_to_send)
+
+# select.to_excel('/Users/stellarnode/Desktop/lessons_intro_{}-{}.xls'.format(year, month))
 
 
 print('\n\nSENDING EMAIL...')
