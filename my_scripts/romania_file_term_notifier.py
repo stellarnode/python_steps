@@ -130,11 +130,27 @@ print(text_to_send)
 # In[16]:
 
 base_url = creds.BASE_URL_ORDERS
-data = requests.get('http://cetatenie.just.ro/index.php/ro/ordine/articol-11')
+# data = requests.get('http://cetatenie.just.ro/index.php/ro/ordine/articol-11')
+headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
+data = requests.get('http://cetatenie.just.ro/ordine/#1578313750617-4f53573c-3c20', headers = headers)
 soup = bs(data.text, 'html.parser')
 links = soup.findAll('a')
-clean_links = list(filter(lambda x: '2019.pdf' in x.attrs['href'] or '2020.pdf' in x.attrs['href'] or '2021.pdf' in x.attrs['href'] or '2022.pdf' in x.attrs['href'], links))
-clean_hrefs = list(map(lambda x: x.get('href'), clean_links))
+
+clean_links = []
+
+for x in links:
+    try:
+        if x.attrs['href']:
+            clean_links.append(x.attrs['href'])
+    except:
+        pass
+
+
+clean_links = list(filter(lambda x: '.pdf' in x, clean_links))
+clean_hrefs = list(filter(lambda x: ('2019' in x) or ('2020' in x) or ('2021' in x) or ('2022' in x) or ('2023' in x), clean_links))
+
+print('-- links found:')
+print(clean_links)
 
 orders_found = []
 select_file_numbers = ['80190/RD/2018', '80196/RD/2018', '80200/RD/2018', '80864/RD/2018', '80190/2018', '80196/2018', '80200/2018', '80864/2018']
@@ -146,8 +162,8 @@ print('\n\n')
 print('Checking issued Orders...', end="", flush=True)
 
 for link in clean_hrefs:
-    pdfName = base_url + link
-    page = requests.get(pdfName)
+    pdfName = link
+    page = requests.get(pdfName, headers = headers)
     pdfPage = io.BytesIO(page.content)
     pdfReader = pdf.PdfFileReader(pdfPage) 
     page_content = ''
