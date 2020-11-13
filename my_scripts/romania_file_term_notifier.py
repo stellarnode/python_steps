@@ -6,8 +6,8 @@
 
 import pandas as pd
 import numpy as np
-import tabula
-from tabula import wrapper
+import tabula as wrapper
+# from tabula import wrapper
 import requests
 from datetime import datetime
 import os
@@ -67,8 +67,8 @@ print('[DONE]')
 # In[6]:
 
 
-df = wrapper.read_pdf(file_name, pages='1700-1790')
-
+df = wrapper.read_pdf(file_name, pages='1770-1869', pandas_options = {'header': None}, output_format = 'dataframe', guess = False)
+df = pd.concat(df)
 
 # In[7]:
 
