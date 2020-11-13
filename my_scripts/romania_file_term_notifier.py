@@ -163,17 +163,21 @@ print('Checking issued Orders...', end="", flush=True)
 
 for link in clean_hrefs:
     pdfName = link
-    page = requests.get(pdfName, headers = headers)
-    pdfPage = io.BytesIO(page.content)
-    pdfReader = pdf.PdfFileReader(pdfPage) 
-    page_content = ''
-    for i in range(0, pdfReader.getNumPages()):
-        page = pdfReader.getPage(i)
-        page_content += page.extractText()
-    for order_number in select_file_numbers:
-        if order_number in page_content:
-            orders_found.append((order_number, pdfName))
-    print('...', end="", flush=True)
+    try:
+        page = requests.get(pdfName, headers = headers)
+        pdfPage = io.BytesIO(page.content)
+        pdfReader = pdf.PdfFileReader(pdfPage) 
+        page_content = ''
+        for i in range(0, pdfReader.getNumPages()):
+            page = pdfReader.getPage(i)
+            page_content += page.extractText()
+        for order_number in select_file_numbers:
+            if order_number in page_content:
+                orders_found.append((order_number, pdfName))
+        print('...', end="", flush=True)
+    except:
+        pass
+    
 
 print('[DONE]' + '\n\n')
 
