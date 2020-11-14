@@ -153,6 +153,7 @@ print('-- links found:')
 print(clean_hrefs)
 
 orders_found = []
+files_skipped = []
 select_file_numbers = ['80190/RD/2018', '80196/RD/2018', '80200/RD/2018', '80864/RD/2018', '80190/2018', '80196/2018', '80200/2018', '80864/2018', '(4226/2018)', '(24358/2018)']
 
 text_to_send += '\n\n\n'
@@ -176,6 +177,7 @@ for link in clean_hrefs:
                 orders_found.append((order_number, pdfName))
         print('...', end="", flush=True)
     except:
+        files_skipped.append(pdfName)
         pass
     
 
@@ -196,6 +198,15 @@ else:
     for link_tuple in orders_found_clean:
         print(link_tuple[0] + ': ' + link_tuple[1])
         text_to_send = text_to_send + link_tuple[0] + ': ' + link_tuple[1] + '\n'
+
+text_to_send = text_to_send + '\n'
+
+if len(files_skipped) > 0:
+    skipped_text = 'The following files were skipped due to errors:\n'
+    text_to_send = text_to_send + skipped_text + '\n'
+    for file in files_skipped:
+        print(file)
+        text_to_send = text_to_send + file + '\n'
 
 print('\n\n')
 print('Proceding to sending info by email...')
