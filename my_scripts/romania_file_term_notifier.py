@@ -147,13 +147,13 @@ for x in links:
 
 
 clean_links = list(filter(lambda x: '.pdf' in x, clean_links))
-clean_hrefs = list(filter(lambda x: ('2019' in x) or ('2020' in x) or ('2021' in x) or ('2022' in x) or ('2023' in x), clean_links))
+clean_hrefs = list(filter(lambda x: ('2020' in x) or ('2021' in x) or ('2022' in x) or ('2023' in x), clean_links))
 
 print('-- links found:')
-print(clean_links)
+print(clean_hrefs)
 
 orders_found = []
-select_file_numbers = ['80190/RD/2018', '80196/RD/2018', '80200/RD/2018', '80864/RD/2018', '80190/2018', '80196/2018', '80200/2018', '80864/2018']
+select_file_numbers = ['80190/RD/2018', '80196/RD/2018', '80200/RD/2018', '80864/RD/2018', '80190/2018', '80196/2018', '80200/2018', '80864/2018', '(4226/2018)', '(24358/2018)']
 
 text_to_send += '\n\n\n'
 
@@ -190,7 +190,7 @@ if len(orders_found_clean) == 0:
     text_to_send = text_to_send + search_result + '\n'
 else:
     match = True
-    search_result = 'The following match(es) were found in issued Orders:\n'
+    search_result = 'The following match(es) were found in issued Orders (some are included for test purposes):\n'
     print(search_result)
     text_to_send = text_to_send + search_result + '\n'
     for link_tuple in orders_found_clean:
