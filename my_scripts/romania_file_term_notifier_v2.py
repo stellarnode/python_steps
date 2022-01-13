@@ -73,7 +73,7 @@ print('[DONE]')
 
 
 
-df = wrapper.read_pdf(file_name, pages='2000-2050', pandas_options = {'header': None}, output_format = 'dataframe', guess = False)
+df = wrapper.read_pdf(file_name, pages='1740-1800', pandas_options = {'header': None}, output_format = 'dataframe', guess = False)
 
 # For older versions of Pandas use df = pd.concat([df]) in the following line
 df = pd.concat(df)
