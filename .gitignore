@@ -12,6 +12,12 @@ python-trading/exchange_rates.js
 python-trading/oanda_sandbox.ipynb
 python-trading/.ipynb_checkpoints/
 
+*creds*
+*credentials*
+*keys*
+*.xlsx
+*.xls
+
 python_fundamentals/prank/
 
 .DS_Store
@@ -31,9 +37,17 @@ IBridgePy_Python2_64bit/
 data-science/DataScience-Python3/
 
 romania_file_term_notifier.ipynb
+romania_file_term_credentials.py
 daily_rbs_payment_reports.ipynb
-daily_rbs_payment_reports.py
+daily_rbs_payment_credentials.py
+daily_rbs_payment_credentials_smartrus.py
+telegram_media_downloader_creds.py
+creds.py
+finance_10-2018_for_cohorts.xlsx
+finance_10-2018.xlsx
+telegram_media_downloader/
 
+__pycache__/
 temp_data/
 Python_for_Data_Analysis_Udemy_Jose_Portilla/
 Python-for-Finance-Repo-udemy/
