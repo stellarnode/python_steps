@@ -1,0 +1,7 @@
+python-telegram-bot==20.3
+google-api-python-client==2.104.0
+youtube-transcript-api==0.6.1
+deep-translator==1.11.4
+mysql-connector-python==8.1.0
+isodate==0.6.1
+openai==0.28.0  # Add this line
