@@ -150,9 +150,9 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         
         keyboard = []
         if original_language not in ['en', 'ru']:
-            keyboard.append([InlineKeyboardButton("Summarize in Original Language", callback_data=f"sum_{video_id}_orig_{transcript_request_id}")])
-        keyboard.append([InlineKeyboardButton("Summarize in English", callback_data=f"sum_{video_id}_en_{transcript_request_id}")])
-        keyboard.append([InlineKeyboardButton("Summarize in Russian", callback_data=f"sum_{video_id}_ru_{transcript_request_id}")])
+            keyboard.append([InlineKeyboardButton("Summarize in Original Language", callback_data=f"sum&{video_id}&orig&{transcript_request_id}")])
+        keyboard.append([InlineKeyboardButton("Summarize in English", callback_data=f"sum&{video_id}&en&{transcript_request_id}")])
+        keyboard.append([InlineKeyboardButton("Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Would you like a summary?", reply_markup=reply_markup)
     else:
@@ -165,7 +165,8 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
     await query.answer()
 
     user_id = query.from_user.id
-    video_id, language, transcript_request_id = query.data.split('_')[1:4]
+    logger.info(f"Query data with video_id, language, transcript_request_id: {query.data}")
+    video_id, language, transcript_request_id = query.data.split('&')[1:4]
     logger.info(f"The folloing language selected for summary: {language}")
     base_filename = context.user_data.get('base_filename')  # Retrieve base_filename
 
