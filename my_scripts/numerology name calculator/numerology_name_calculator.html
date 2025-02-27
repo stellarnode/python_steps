@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Numerology Calculator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap" rel="stylesheet">
+    <style>
+        .font_selector {
+            font-family: 'Roboto',Arial,sans-serif;
+            font-weight: 300;
+            color: #000000;
+        }
+        }
+    </style>
+    <script>
+        function numerologySum(inputString) {
+            const latinMap = 'abcdefghijklmnopqrstuvwxyz'.split('');
+            const cyrillicMap = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'.split('');
+            const greekMap = 'αβγδεζηθικλμνξοπρστυφχψω'.split('');
+
+            function getLetterValue(char) {
+                const code = char.charCodeAt(0);
+                
+                // For Latin letters
+                if (code >= 97 && code <= 122) {
+                    return (latinMap.indexOf(char) % 9) + 1;
+                }
+                
+                // For Greek letters
+                if (code >= 945 && code <= 969) {
+                    return (greekMap.indexOf(char) % 9) + 1;
+                }
+
+                // For Cyrillic letters
+                if (code >= 1072 && code <= 1103) {
+                    return (cyrillicMap.indexOf(char) % 9) + 1;
+                }
+
+                // For digits
+                if (!isNaN(char)) {
+                    return parseInt(char, 10);
+                }
+
+                // Ignore other characters
+                return 0;
+            }
+
+            function reduceSumToLimit(sum, limit) {
+                while (sum > limit) {
+                    sum = sum.toString().split('').reduce((acc, digit) => acc + parseInt(digit), 0);
+                }
+                return sum;
+            }
+
+            // Step 1: Clean the input
+            const cleanString = inputString.replace(/\s+/g, '').toLowerCase();
+
+            // Step 2: Break the string into characters and calculate the total sum
+            let totalSum = 0;
+            for (let char of cleanString) {
+                totalSum += getLetterValue(char);
+            }
+
+            // Step 3: Get the sum for option 1 (reduce to <= 22) and option 2 (reduce to <= 9)
+            const option1 = reduceSumToLimit(totalSum, 22);
+            const option2 = reduceSumToLimit(totalSum, 9);
+
+            return { option1, option2 };
+        }
+
+        function calculateNumerology() {
+            const inputString = document.getElementById("inputString").value;
+            const { option1, option2 } = numerologySum(inputString);
+            document.getElementById("option1Result").innerText = option1;
+            document.getElementById("option2Result").innerText = option2;
+        }
+    </script>
+</head>
+<body class="font_selector">
+    <!-- <h1>Калькулятор имен, названий и кодов</h1> -->
+    <label for="inputString">Введите имя, число или код:</label>
+    </br>
+    </br>
+    <input type="text" id="inputString" size="40" />
+    <button onclick="calculateNumerology()">Рассчитать</button>
+
+    <h2>Расчет</h2>
+    <p>Аркан: <span id="option1Result"></span></p>
+    <p>Однозначный код: <span id="option2Result"></span></p>
+</body>
+</html>

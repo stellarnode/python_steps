@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Numerology Calculator</title>
+
+    <!-- Link to Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Link to Google Fonts: Roboto -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            font-weight: 200;
+            background-color: #fff;
+            padding-top: 50px;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+        }
+        .card {
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            font-weight: 300;
+        }
+        .card-header {
+            font-size: 1.5rem;
+            background-color: #000;
+            color: white;
+            text-align: center;
+        }
+        .form-control {
+            border-radius: 0.25rem;
+        }
+        .btn-primary, .btn-default {
+            background-color: #555;
+            border-color: #555;
+            color: #fff;
+        }
+        .btn-primary, .btn-default:hover {
+            background-color: #333;
+            border-color: #333;
+            color: #fff;
+        }
+        .result {
+            font-weight: bold;
+            font-size: 1.25rem;
+            color: #000;
+        }
+        .result-label {
+            font-size: 1rem;
+            color: #6c757d;
+        }
+        .more-padding {
+            padding-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <!-- <div class="card-header">
+            Numerology Calculator
+        </div> -->
+        <div class="card-body">
+            <form id="numerologyForm">
+                <div class="form-group">
+                    <label for="inputString">Введите имя, название или код:</label>
+                    <input type="text" class="form-control" id="inputString">
+                </div>
+                <button type="submit" class="btn btn-default btn-block" id="calculateButton">Рассчитать</button>
+            </form>
+
+            <hr>
+
+            <div class="results">
+                <p class="result-label">Аркан:</p>
+                <p id="option1Result" class="result"></p>
+                <p class="result-label">Однозначный код:</p>
+                <p id="option2Result" class="result"></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap JS and dependencies (optional for interactivity like modals) -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        function numerologySum(inputString) {
+            const latinMap = 'abcdefghijklmnopqrstuvwxyz'.split('');
+            const cyrillicMap = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'.split('');
+            const greekMap = 'αβγδεζηθικλμνξοπρστυφχψω'.split('');
+
+            function getLetterValue(char) {
+                const code = char.charCodeAt(0);
+
+                // For Latin letters
+                if (code >= 97 && code <= 122) {
+                    return (latinMap.indexOf(char) % 9) + 1;
+                }
+
+                // For Greek letters
+                if (code >= 945 && code <= 969) {
+                    return (greekMap.indexOf(char) % 9) + 1;
+                }
+
+                // For Cyrillic letters
+                if (code >= 1072 && code <= 1103) {
+                    return (cyrillicMap.indexOf(char) % 9) + 1;
+                }
+
+                // For digits
+                if (!isNaN(char)) {
+                    return parseInt(char, 10);
+                }
+
+                // Ignore other characters
+                return 0;
+            }
+
+            function reduceSumToLimit(sum, limit) {
+                while (sum > limit) {
+                    sum = sum.toString().split('').reduce((acc, digit) => acc + parseInt(digit), 0);
+                }
+                return sum;
+            }
+
+            // Clean the input
+            const cleanString = inputString.replace(/\s+/g, '').toLowerCase();
+
+            // Calculate the total sum
+            let totalSum = 0;
+            for (let char of cleanString) {
+                totalSum += getLetterValue(char);
+            }
+
+            // Get the sum for option 1 (reduce to ≤ 22) and option 2 (reduce to ≤ 9)
+            const option1 = reduceSumToLimit(totalSum, 22);
+            const option2 = reduceSumToLimit(totalSum, 9);
+
+            return { option1, option2 };
+        }
+
+        function calculateNumerology(e) {
+            e.preventDefault(); // Prevent form from submitting
+            const inputString = document.querySelector("#inputString").value;
+
+            const { option1, option2 } = numerologySum(inputString);
+
+            // Display the results
+            document.querySelector("#option1Result").innerText = option1;
+            document.querySelector("#option2Result").innerText = option2;
+        }
+
+        // Add event listener to form submission
+        document.querySelector("#numerologyForm").addEventListener("submit", calculateNumerology);
+    });
+</script>
+
+</body>
+</html>
