@@ -101,6 +101,11 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         chunk = video_info[i:i + max_length]
         await update.message.reply_text(chunk, parse_mode="HTML")  # Use HTML for bold formatting
 
+    # await update.message.reply_text("Preparing transcripts...")
+    # Send the temporary status message and store the message ID
+    status_message = await update.message.reply_text("Preparing transcripts...")
+    status_message_id = status_message.message_id
+
     # Get and save transcripts
     transcript_list = get_all_transcripts(video_id)
     if transcript_list:
@@ -132,6 +137,12 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
                     logger.error(f"Failed to send transcript file {filename}: {e}")
         logger.info(f"Transcripts sent to user {user_id} for video {video_id}.")
 
+        # Delete the temporary status message
+        try:
+            await context.bot.delete_message(chat_id=update.message.chat_id, message_id=status_message_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete the temporary status message: {e}.")
+
         # Show summarization buttons
         
         try:
@@ -150,7 +161,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         
         keyboard = []
         if original_language not in ['en', 'ru']:
-            keyboard.append([InlineKeyboardButton("Summarize in Original Language", callback_data=f"sum&{video_id}&orig&{transcript_request_id}")])
+            keyboard.append([InlineKeyboardButton("Summarize in original language", callback_data=f"sum&{video_id}&orig&{transcript_request_id}")])
         keyboard.append([InlineKeyboardButton("Summarize in English", callback_data=f"sum&{video_id}&en&{transcript_request_id}")])
         keyboard.append([InlineKeyboardButton("Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -174,6 +185,8 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         logger.error("base_filename not found in user_data.")
         await query.edit_message_text("Failed to generate summary. Missing file information.")
         return
+
+    await query.edit_message_text("Working on summary...")
 
     try:
         # Ensure transcript_request_id is an integer
@@ -208,7 +221,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
 
         # Handle summarization request
         logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
-        summary, tokens_used, estimated_cost, word_count = handle_summarization_request(
+        summary, tokens_used, estimated_cost, word_count, model = handle_summarization_request(
             text=transcript,
             original_language=original_language,
             target_language=language,
@@ -224,7 +237,9 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
             tokens_used=tokens_used,
             estimated_cost=estimated_cost,
             word_count=word_count,
-            status="completed"
+            status="completed",
+            model=model,
+            summary=summary
         )
 
         # Format the summary with Markdown
@@ -235,8 +250,16 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         else:
             formatted_summary = f"*Summary in Original Language:*\n\n{summary}"
 
-        # Send the summary
-        await query.edit_message_text(formatted_summary, parse_mode="Markdown")
+        # Send the summary (if sending the whole text as one piece)
+        # await query.edit_message_text(formatted_summary, parse_mode="Markdown")
+
+        # Split the formatted summary into chunks of 4096 characters
+        max_length = 4096
+        for i in range(0, len(formatted_summary), max_length):
+            chunk = formatted_summary[i:i + max_length]
+            # await query.message.reply_text(chunk, parse_mode="Markdown")
+            await query.edit_message_text(chunk, parse_mode="Markdown")
+
     except ValueError as e:
         logger.error(f"Invalid transcript_request_id: {transcript_request_id}. Error: {e}")
         await query.edit_message_text("Failed to generate summary. Invalid request ID.")

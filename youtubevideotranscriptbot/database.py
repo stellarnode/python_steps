@@ -107,7 +107,7 @@ def store_transcript_request(user_id, video_id):
         conn.close()
 
 # Store summarization request
-def store_summarization_request(user_id, video_id, language, transcript_request_id, tokens_used, estimated_cost, word_count, status):
+def store_summarization_request(user_id, video_id, language, transcript_request_id, tokens_used, estimated_cost, word_count, status, model, summary):
     """
     Stores a summarization request in the database.
 
@@ -129,11 +129,11 @@ def store_summarization_request(user_id, video_id, language, transcript_request_
     try:
         query = """
         INSERT INTO summarization_requests (
-            user_id, video_id, language, transcript_request_id, tokens_used, estimated_cost, word_count, status
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            user_id, video_id, language, transcript_request_id, tokens_used, estimated_cost, word_count, status, model, summary
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
-            user_id, video_id, language, transcript_request_id, tokens_used, estimated_cost, word_count, status
+            user_id, video_id, language, transcript_request_id, tokens_used, estimated_cost, word_count, status, model, summary
         ))
         conn.commit()
         request_id = cursor.lastrowid  # Get the ID of the newly inserted row
