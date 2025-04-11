@@ -66,7 +66,16 @@ def detect_language(text):
         return "ru"  # Default to Russian if detection fails
 
 # Call OpenAI API for responses
-def call_openai_api(message, language_code):
+def call_openai_api(message, language_code, command=None):
+    logger.info(f"Current mode: {command}")
+
+    if command == "talk":
+        prompt = "Ты настоящий русский банщик. Отвечай в разговорном и расслабленном стиле. Иногда можешь ругнуться и матом, если к месту и с юмором. Как настоящий банщик ты можешь обсуждать любые вопросы, которые взрослые мужики могут обсуждать в бане. Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело."
+    elif command == "prompt" or command is None:
+        prompt = f"Отвечай в разговорном и расслабленном стиле. Иногда можешь ругнуться и матом, если к месту и с юмором. Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело. Отвечай на том языке, на котором задан вопрос."
+    else:
+        prompt = "Ты настоящий русский банщик. Отвечай в разговорном и расслабленном стиле. Иногда можешь ругнуться и матом, если к месту и с юмором. Как настоящий банщик ты можешь обсуждать любые вопросы, которые взрослые мужики могут обсуждать в бане. Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело."
+
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4",  # Use "gpt-3.5-turbo" if you prefer or "gpt-4"
@@ -77,13 +86,7 @@ def call_openai_api(message, language_code):
                 # You are witty and clever and sometimes sarcastic. Your guests enjoy your company very much.
                 # You can use profanity sparingly when it adds emphasis or humor. Respond in the same language as the user.
                 # """},
-                {"role": "system", "content": f"""
-                Ты настоящий русский банщик. Отвечай в разговорном и расслабленном стиле. Иногда можешь ругнуться и матом, если к месту и с юмором.
-                Как настоящий банщик ты можешь обсуждать любые вопросы, которые взрослые мужики могут обсуждать в бане. Ты умный приколист, иногда можешь быть саркастичным.
-                В твоей компании всегда всем прикольно и весело. Используй для ответаа не более 180 токенов. Всегда завершай предложения.
-                Твои ответы должны быть не более 70 слов и завершаться точкой, восклицательным или вопросительным знаком.
-                Отвечай на том же языке, на котором к тебе обращаются.
-                """},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": message}
             ],
             temperature=0.7,  # Adjust for creativity
@@ -102,6 +105,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_message = update.message.text
     print(user_message)
+    mode = context.user_data.get('mode', 'talk')  # Default to 'talk' if not set
+    logger.info(f"Current mode: {mode}")
+
+    # Check if the message is a reply to another message
+    if update.message.reply_to_message:
+        replied_message = update.message.reply_to_message.text
+        # Combine the user's message with the replied message
+        user_message = f"Initial message from assistant: {replied_message}\nUser's new message: {user_message}"
+        logger.info(f"Combined dialog: {user_message}")
 
     # Store user info only if it's a private chat
     # if chat_type == "private":
@@ -115,7 +127,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Call OpenAI API
     language_code = user.language_code or "en"  # Default to English if language_code is not provided
-    bot_response = call_openai_api(user_message, language_code)
+    bot_response = call_openai_api(user_message, language_code, command=mode)
 
     # Send response back to the user or group
     await update.message.reply_text(bot_response)
@@ -131,6 +143,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Talk command handler
 async def talk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mode = "talk"
+    context.user_data['mode'] = mode
     user = update.message.from_user
     chat_type = update.message.chat.type
 
@@ -141,6 +155,14 @@ async def talk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_message = user_message[1]  # Extract the message part
+
+    # Check if the message is a reply to another message
+    if update.message.reply_to_message:
+        replied_message = update.message.reply_to_message.text
+        # Combine the user's message with the replied message
+        user_message = f"Initial message from assistant: {replied_message}\nUser's new message: {user_message}"
+        logger.info(f"Combined dialog: {user_message}")
+        # print(f"Combined dialog: {user_message}")
 
     # Store user info only if it's a private chat
     # if chat_type == "private":
@@ -154,7 +176,47 @@ async def talk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Call OpenAI API
     language_code = user.language_code or "en"  # Default to English if language_code is not provided
-    bot_response = call_openai_api(user_message, language_code)
+    bot_response = call_openai_api(user_message, language_code, command=mode)
+
+    # Send response back to the user or group
+    await update.message.reply_text(bot_response)
+
+# Prompt command handler
+async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mode = "prompt"
+    context.user_data['mode'] = mode
+    user = update.message.from_user
+    chat_type = update.message.chat.type
+
+    # Extract the message after the /talk command
+    user_message = update.message.text.split(maxsplit=1)  # Split the message into command and text
+    if len(user_message) < 2:  # Check if there is no message after /talk
+        await update.message.reply_text("Hey, you gotta give me something to work with! Try /prompt <your message>.")
+        return
+
+    user_message = user_message[1]  # Extract the message part
+
+    # Check if the message is a reply to another message
+    if update.message.reply_to_message:
+        replied_message = update.message.reply_to_message.text
+        # Combine the user's message with the replied message
+        user_message = f"Initial message from assistant: {replied_message}\nUser's new message: {user_message}"
+        logger.info(f"Combined dialog: {user_message}")
+        # print(f"Combined dialog: {user_message}")
+
+    # Store user info only if it's a private chat
+    # if chat_type == "private":
+    #     store_user_info(user)
+
+    # Store user info
+    store_user_info(user)
+
+    # Detect language from the user's message
+    language_code = detect_language(user_message)
+
+    # Call OpenAI API
+    language_code = user.language_code or "en"  # Default to English if language_code is not provided
+    bot_response = call_openai_api(user_message, language_code, command=mode)
 
     # Send response back to the user or group
     await update.message.reply_text(bot_response)
@@ -170,6 +232,7 @@ def main():
     # Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("talk", talk))
+    application.add_handler(CommandHandler("prompt", prompt))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Start the bot
