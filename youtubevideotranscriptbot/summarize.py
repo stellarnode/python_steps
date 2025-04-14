@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 model_to_use = 2 # 1 for OpenAI, 2 for DeepSeek
 
 if model_to_use == 1:
-    tokens_per_chunk = 15000
+    tokens_per_chunk = 100000
     max_chunks_allowed = 4
-    max_tokens = 500
-    model = "gpt-3.5-turbo"
+    max_tokens = 1024
+    model = "gpt-4o-mini"
     client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
-    logger.info("Using OpenAI GPT-3.5-turbo model for summarization.")
+    logger.info(f"Using OpenAI {model} model for summarization.")
 elif model_to_use == 2:
     tokens_per_chunk = 64000
     max_chunks_allowed = 3
@@ -30,7 +30,7 @@ elif model_to_use == 2:
     model = "deepseek-chat"
     # for DeepSeek backward compatibility, you can still use `https://api.deepseek.com/v1` as `base_url`.
     client = openai.OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
-    logger.info("Using DeepSeek model for summarization.")
+    logger.info(f"Using DeepSeek {model} for summarization.")
 else:
     logger.error("Invalid model selection. Please select 1 for OpenAI or 2 for DeepSeek.")
 
