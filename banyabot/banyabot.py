@@ -5,11 +5,35 @@ import requests
 from langdetect import detect  # For language detection
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from banyabot_credentials import TELEGRAM_BOT_TOKEN, DEEPSEEK_API_KEY, OPENAI_API_KEY, MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
+from banyabot_credentials import TELEGRAM_BOT_TOKEN, DEEPSEEK_API_KEY, OPENAI_API_KEY, GROK_API_KEY, MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+model_to_use = 3 # 1 for OpenAI, 2 for DeepSeek
+
+if model_to_use == 1:
+    max_tokens = 250
+    temperature = 0.7
+    model = "gpt-4"
+    client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
+    logger.info(f"Using OpenAI {model} model.")
+elif model_to_use == 2:
+    max_tokens = 250
+    temperature = 0.9
+    model = "deepseek-chat"
+    # for DeepSeek backward compatibility, you can still use `https://api.deepseek.com/v1` as `base_url`.
+    client = openai.OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
+    logger.info(f"Using DeepSeek {model} model.")
+elif model_to_use == 3:
+    max_tokens = 250
+    temperature = 0.7
+    model = "grok-3-beta"
+    client = openai.OpenAI(api_key=GROK_API_KEY, base_url="https://api.x.ai/v1")
+    logger.info(f"Using Grok {model} model.")
+else:
+    logger.error("Invalid model selection. Please select 1 for OpenAI, 2 for DeepSeek or 3 for Grok.")
 
 # Connect to MySQL database
 def get_db_connection():
@@ -40,23 +64,23 @@ def store_user_info(user):
         connection.close()
 
 # Call DeepSeek API for responses
-def call_deepseek_api(message, language_code):
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "prompt": message,
-        "language": language_code,
-        "tone": "colloquial"
-    }
-    try:
-        response = requests.post("https://api.deepseek.com/v1/chat", headers=headers, json=data)
-        response.raise_for_status()
-        return response.json().get("response", "Sorry, I couldn't process that.")
-    except Exception as e:
-        logger.error(f"Error calling DeepSeek API: {e}")
-        return "Oops, something went wrong. Try again later, mate."
+# def call_deepseek_api(message, language_code):
+#     headers = {
+#         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+#         "Content-Type": "application/json"
+#     }
+#     data = {
+#         "prompt": message,
+#         "language": language_code,
+#         "tone": "colloquial"
+#     }
+#     try:
+#         response = requests.post("https://api.deepseek.com/v1/chat", headers=headers, json=data)
+#         response.raise_for_status()
+#         return response.json().get("response", "Sorry, I couldn't process that.")
+#     except Exception as e:
+#         logger.error(f"Error calling DeepSeek API: {e}")
+#         return "Oops, something went wrong. Try again later, mate."
 
 # Detect language from the user's message
 def detect_language(text):
@@ -70,15 +94,31 @@ def call_openai_api(message, language_code, command=None):
     logger.info(f"Current mode: {command}")
 
     if command == "talk":
-        prompt = "Ты настоящий русский банщик. Отвечай в разговорном и расслабленном стиле. Иногда можешь ругнуться и матом, если к месту и с юмором. Как настоящий банщик ты можешь обсуждать любые вопросы, которые взрослые мужики могут обсуждать в бане. Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело."
+        prompt = f"""Ты настоящий русский банщик. Отвечай в разговорном и расслабленном стиле. 
+        Иногда можешь ругнуться и матом, если к месту и с юмором. 
+        Как настоящий банщик ты можешь обсуждать любые вопросы, которые взрослые мужики могут обсуждать в бане. 
+        Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело.
+        Отвечай на том языке, на котором задан вопрос.
+        Твои ответы всегда и обязательно долджны завершаться полным предложением, 
+        которое заканчивается точкой, восклицательным или вопросительным знаком."""
     elif command == "prompt" or command is None:
-        prompt = f"Отвечай в разговорном и расслабленном стиле. Иногда можешь ругнуться и матом, если к месту и с юмором. Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело. Отвечай на том языке, на котором задан вопрос."
+        prompt = f"""Отвечай в разговорном и расслабленном стиле. 
+        Иногда можешь ругнуться и матом, если к месту и с юмором. 
+        Ты умный приколист, иногда можешь быть саркастичным. 
+        В твоей компании всегда всем прикольно и весело. Отвечай на том языке, на котором задан вопрос.
+        Твои ответы всегда и обязательно долджны завершаться полным предложением, 
+        которое заканчивается точкой, восклицательным или вопросительным знаком."""
     else:
-        prompt = "Ты настоящий русский банщик. Отвечай в разговорном и расслабленном стиле. Иногда можешь ругнуться и матом, если к месту и с юмором. Как настоящий банщик ты можешь обсуждать любые вопросы, которые взрослые мужики могут обсуждать в бане. Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело."
-
+        prompt = f"""Ты настоящий русский банщик. Отвечай в разговорном и расслабленном стиле. 
+        Иногда можешь ругнуться и матом, если к месту и с юмором. 
+        Как настоящий банщик ты можешь обсуждать любые вопросы, которые взрослые мужики могут обсуждать в бане. 
+        Ты умный приколист, иногда можешь быть саркастичным. В твоей компании всегда всем прикольно и весело.
+        Отвечай на том языке, на котором задан вопрос.
+        Твои ответы всегда и обязательно долджны завершаться полным предложением, 
+        которое заканчивается точкой, восклицательным или вопросительным знаком."""
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",  # Use "gpt-3.5-turbo" if you prefer or "gpt-4"
+        response = client.chat.completions.create(
+            model=model, # "gpt-4",  # Use "gpt-3.5-turbo" if you prefer or "gpt-4"
             messages=[
                 # {"role": "system", "content": f"""
                 # You are a bath attendant. Respond in a colloquial tone, with occasional stylish profanity if it fits the context. 
@@ -89,10 +129,11 @@ def call_openai_api(message, language_code, command=None):
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": message}
             ],
-            temperature=0.7,  # Adjust for creativity
-            max_tokens=250  # Limit response length
+            temperature=temperature,  # Adjust for creativity
+            max_tokens=max_tokens,
+            stream=False  # Limit response length
         )
-        return response.choices[0].message['content'].strip()
+        return response.choices[0].message.content
     except Exception as e:
         logger.error(f"Error calling OpenAI API: {e}")
         return "Oops, something went wrong. Try again later, mate."
@@ -108,11 +149,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = context.user_data.get('mode', 'talk')  # Default to 'talk' if not set
     logger.info(f"Current mode: {mode}")
 
+    try:
+        user_request = context.user_data.get('user_request', None)
+        dialog = context.user_data.get('dialog', None)
+    except Exception as e:
+        logger.error(f"Error retrieving initial user request and dialog: {e}")
+
     # Check if the message is a reply to another message
     if update.message.reply_to_message:
         replied_message = update.message.reply_to_message.text
         # Combine the user's message with the replied message
-        user_message = f"Initial message from assistant: {replied_message}\nUser's new message: {user_message}"
+        if user_request:
+            user_message = f"""Initial user's request: {user_request}\n
+             ...\n
+             Latest message from assistant: {replied_message}\n
+             User's new message: {user_message}"""
+        else:
+            user_message = f"""Latest message from assistant: {replied_message}\nUser's new message: {user_message}"""
         logger.info(f"Combined dialog: {user_message}")
 
     # Store user info only if it's a private chat
@@ -128,6 +181,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Call OpenAI API
     language_code = user.language_code or "en"  # Default to English if language_code is not provided
     bot_response = call_openai_api(user_message, language_code, command=mode)
+    
+    try:
+        context.user_data['dialog'] += f"""\nAssistant: {bot_response}"""
+    except Exception as e:
+        logger.error(f"No previous dialogs, it seems. Error storing dialog: {e}")
 
     # Send response back to the user or group
     await update.message.reply_text(bot_response)
@@ -155,6 +213,8 @@ async def talk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_message = user_message[1]  # Extract the message part
+    context.user_data['user_request'] = user_message  # Store the message in user_data
+    context.user_data['dialog'] = f"""\nUser: {user_message}"""  # Store the message in user_data
 
     # Check if the message is a reply to another message
     if update.message.reply_to_message:
@@ -177,6 +237,7 @@ async def talk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Call OpenAI API
     language_code = user.language_code or "en"  # Default to English if language_code is not provided
     bot_response = call_openai_api(user_message, language_code, command=mode)
+    context.user_data['dialog'] += f"""\nAssistant: {bot_response}"""  # Store the response in user_data
 
     # Send response back to the user or group
     await update.message.reply_text(bot_response)
@@ -195,6 +256,8 @@ async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_message = user_message[1]  # Extract the message part
+    context.user_data['user_request'] = user_message  # Store the message in user_data
+    context.user_data['dialog'] = f"""\nUser: {user_message}"""  # Store the message in user_data
 
     # Check if the message is a reply to another message
     if update.message.reply_to_message:
@@ -217,6 +280,7 @@ async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Call OpenAI API
     language_code = user.language_code or "en"  # Default to English if language_code is not provided
     bot_response = call_openai_api(user_message, language_code, command=mode)
+    context.user_data['dialog'] += f"""\nAssistant: {bot_response}"""  # Store the response in user_data
 
     # Send response back to the user or group
     await update.message.reply_text(bot_response)
