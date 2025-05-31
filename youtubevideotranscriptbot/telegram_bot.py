@@ -5,7 +5,7 @@ import logging
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY
-from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request
+from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async
 from youtube_api import extract_video_id, get_video_details, get_channel_subscribers
 from transcript import get_all_transcripts, save_transcripts, normalize_language_code
 from summarize import handle_summarization_request
@@ -64,7 +64,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
     logger.info(f"User {user_id} sent a YouTube link.")
 
     # Store user details
-    store_user(user_id, username, first_name, last_name, phone_number)
+    await store_user_async(user_id, username, first_name, last_name, phone_number)
 
     # Extract video ID
     video_url = update.message.text
@@ -75,12 +75,17 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         await update.message.reply_text("Invalid YouTube link. Please try again.")
         return
 
+    # await update.message.reply_text("Preparing transcripts...")
+    # Send the temporary status message and store the message ID
+    status_message = await update.message.reply_text("Fetching video info...")
+    status_message_id = status_message.message_id
+
     # Get video details
     video_details = get_video_details(video_id)
     channel_id = video_details['snippet']['channelId']
     subscribers = get_channel_subscribers(channel_id)  # Get number of subscribers
-    store_video(video_id, video_details, subscribers)  # Store video details
-    transcript_request_id = store_transcript_request(user_id, video_id)  # Store transcript request and get request_id
+    await store_video_async(video_id, video_details, subscribers)  # Store video details
+    transcript_request_id = await store_transcript_request_async(user_id, video_id)  # Store transcript request and get request_id
 
     # Prepare video details message with improved formatting
     logger.info(f"Here are video details: {video_details}.")
@@ -95,11 +100,18 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         f"<b>Description</b>: {video_details['snippet']['description']}"
     )
 
+    # Delete the temporary status message
+    try:
+        await context.bot.delete_message(chat_id=update.message.chat_id, message_id=status_message_id)
+    except Exception as e:
+        logger.warning(f"Failed to delete the temporary status message: {e}.")
+
     # Split the message into chunks of 4096 characters
     max_length = 4096
     for i in range(0, len(video_info), max_length):
         chunk = video_info[i:i + max_length]
         await update.message.reply_text(chunk, parse_mode="HTML")  # Use HTML for bold formatting
+
 
     # await update.message.reply_text("Preparing transcripts...")
     # Send the temporary status message and store the message ID
@@ -159,6 +171,8 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         except:
             pass
         
+        logger.info(f"Using the following transcript_request_id to find transcript: {transcript_request_id}")
+
         keyboard = []
         if original_language not in ['en', 'ru']:
             keyboard.append([InlineKeyboardButton("Summarize in original language", callback_data=f"sum&{video_id}&orig&{transcript_request_id}")])
@@ -167,7 +181,8 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Would you like a summary?", reply_markup=reply_markup)
     else:
-        logger.warning(f"No transcripts available for video {video_id}.")
+        logger.warning(f"No transcripts retrieved for video {video_id}.")
+        logger.warning(f"YouTube API returned: {transcript_list}")
         await update.message.reply_text("No transcripts available for this video.")
 
 # Handle summarization button clicks
@@ -178,7 +193,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
     user_id = query.from_user.id
     logger.info(f"Query data with video_id, language, transcript_request_id: {query.data}")
     video_id, language, transcript_request_id = query.data.split('&')[1:4]
-    logger.info(f"The folloing language selected for summary: {language}")
+    logger.info(f"The following language selected for summary: {language}")
     base_filename = context.user_data.get('base_filename')  # Retrieve base_filename
 
     if not base_filename:
@@ -229,7 +244,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         )
 
         # Log the summarization request in the database
-        store_summarization_request(
+        await store_summarization_request_async(
             user_id=user_id,
             video_id=video_id,
             language=language,
@@ -269,7 +284,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Failed to summarize video {video_id} for user {user_id}: {e}")
         # Log the failed summarization request in the database
-        store_summarization_request(
+        await store_summarization_request_async(
             user_id=user_id,
             video_id=video_id,
             language=language,

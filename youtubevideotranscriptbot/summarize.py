@@ -226,6 +226,10 @@ def handle_summarization_request(text, original_language, target_language, num_k
         # Summarize the original transcript
         summary, tokens_used, estimated_cost, word_count = summarize_text(text, original_language, num_key_points)
 
+        if target_language == 'orig':
+            target_language = original_language
+        logger.info(f"Summary generated in {target_language} language. Translation skipped.")
+
         # Translate the summary if the target language is not the original language
         if target_language != original_language:
             summary = translate_summary(summary, src_lang=original_language, dest_lang=target_language)

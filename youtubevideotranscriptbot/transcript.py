@@ -27,7 +27,9 @@ def save_transcripts(transcript_list, base_filename):
     formatter = TextFormatter()
     os.makedirs("transcripts", exist_ok=True)  # Create the transcripts directory if it doesn't exist
 
-    translation_needed = {"en": True, "ru": True}
+    # Set to True if you require translations of the transcripts.
+    # By default, I turned off this feature to avoid unnecessary API calls.
+    translation_needed = {"en": True, "ru": False}
 
     for transcript in transcript_list:
         language_code = transcript.language_code
