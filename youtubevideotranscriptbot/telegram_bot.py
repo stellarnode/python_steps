@@ -4,8 +4,8 @@ import re
 import logging
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
-from config import TELEGRAM_TOKEN, OPENAI_API_KEY
-from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async
+from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE
+from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async, get_summary_by_video_language_async
 from youtube_api import extract_video_id, get_video_details, get_channel_subscribers
 from transcript import get_all_transcripts, save_transcripts, normalize_language_code
 from summarize import handle_summarization_request
@@ -203,98 +203,112 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
 
     await query.edit_message_text("Working on summary...")
 
-    try:
-        # Ensure transcript_request_id is an integer
-        transcript_request_id = int(transcript_request_id)
+    model = MODEL_TO_USE  # Use the model specified in the config
 
-        # Fetch the original transcript file
-        transcript_folder = "transcripts"
-        
-        try:
-            # Get video details
-            video_details = get_video_details(video_id)
-            original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
-            if original_language:
-                logger.info(f"Original language determined as: {original_language}")
-        except:
-            original_language = next(iter(get_all_transcripts(video_id))).language_code  # Get the original language code
-            logger.warning(f"Original language could not be determined. Falling back to first random: {original_language}")
-
-        try:
-            original_language = normalize_language_code(original_language)
-        except:
-            pass
-        transcript_filename = f"{transcript_folder}/{base_filename}_transcript_{original_language}.txt"
-
-        logger.info(f"Looking for transcript file: {transcript_filename}")
-        if not os.path.exists(transcript_filename):
-            logger.error(f"Transcript file not found: {transcript_filename}")
-            raise FileNotFoundError(f"Transcript file not found: {transcript_filename}")
-
-        with open(transcript_filename, 'r', encoding='utf-8') as f:
-            transcript = f.read()
-
-        # Handle summarization request
-        logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
-        summary, tokens_used, estimated_cost, word_count, model = handle_summarization_request(
-            text=transcript,
-            original_language=original_language,
-            target_language=language,
-            num_key_points=3
-        )
-
-        # Log the summarization request in the database
-        await store_summarization_request_async(
-            user_id=user_id,
-            video_id=video_id,
-            language=language,
-            transcript_request_id=transcript_request_id,
-            tokens_used=tokens_used,
-            estimated_cost=estimated_cost,
-            word_count=word_count,
-            status="completed",
-            model=model,
-            summary=summary
-        )
-
-        # Format the summary with Markdown
-        if language == "ru":
-            formatted_summary = f"*Краткое содержание:*\n\n{summary}"
-        elif language == "en":
-            formatted_summary = f"*Summary:*\n\n{summary}"
-        else:
-            formatted_summary = f"*Summary in Original Language:*\n\n{summary}"
-
-        # Send the summary (if sending the whole text as one piece)
-        # await query.edit_message_text(formatted_summary, parse_mode="Markdown")
-
-        # Split the formatted summary into chunks of 4096 characters
+    summary = await get_summary_by_video_language_async(video_id=video_id, language=language, model=model)
+    if summary:
+        logger.info(f"Summary already exists for video {video_id} in language {language} and model {model}.")
+        # Split the summary into chunks of 4096 characters
         max_length = 4096
-        for i in range(0, len(formatted_summary), max_length):
-            chunk = formatted_summary[i:i + max_length]
-            # await query.message.reply_text(chunk, parse_mode="Markdown")
+        for i in range(0, len(summary), max_length):
+            chunk = summary[i:i + max_length]
             await query.edit_message_text(chunk, parse_mode="Markdown")
+        return
+    else:
+        logger.info(f"No existing summary found for video {video_id} in language {language} and model {model}. Proceeding to generate a new summary.")
 
-    except ValueError as e:
-        logger.error(f"Invalid transcript_request_id: {transcript_request_id}. Error: {e}")
-        await query.edit_message_text("Failed to generate summary. Invalid request ID.")
-    except FileNotFoundError as e:
-        logger.error(f"Transcript file not found: {e}")
-        await query.edit_message_text("Failed to generate summary. Transcript file not found.")
-    except Exception as e:
-        logger.error(f"Failed to summarize video {video_id} for user {user_id}: {e}")
-        # Log the failed summarization request in the database
-        await store_summarization_request_async(
-            user_id=user_id,
-            video_id=video_id,
-            language=language,
-            transcript_request_id=transcript_request_id,
-            tokens_used=0,
-            estimated_cost=0.0,
-            word_count=0,
-            status="failed"
-        )
-        await query.edit_message_text("Failed to generate summary. Please try again later.")
+        try:
+            # Ensure transcript_request_id is an integer
+            transcript_request_id = int(transcript_request_id)
+
+            # Fetch the original transcript file
+            transcript_folder = "transcripts"
+            
+            try:
+                # Get video details
+                video_details = get_video_details(video_id)
+                original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
+                if original_language:
+                    logger.info(f"Original language determined as: {original_language}")
+            except:
+                original_language = next(iter(get_all_transcripts(video_id))).language_code  # Get the original language code
+                logger.warning(f"Original language could not be determined. Falling back to first random: {original_language}")
+
+            try:
+                original_language = normalize_language_code(original_language)
+            except:
+                pass
+            transcript_filename = f"{transcript_folder}/{base_filename}_transcript_{original_language}.txt"
+
+            logger.info(f"Looking for transcript file: {transcript_filename}")
+            if not os.path.exists(transcript_filename):
+                logger.error(f"Transcript file not found: {transcript_filename}")
+                raise FileNotFoundError(f"Transcript file not found: {transcript_filename}")
+
+            with open(transcript_filename, 'r', encoding='utf-8') as f:
+                transcript = f.read()
+
+            # Handle summarization request
+            logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
+            summary, tokens_used, estimated_cost, word_count, model = await handle_summarization_request(
+                text=transcript,
+                original_language=original_language,
+                target_language=language,
+                num_key_points=3
+            )
+
+            # Log the summarization request in the database
+            await store_summarization_request_async(
+                user_id=user_id,
+                video_id=video_id,
+                language=language,
+                transcript_request_id=transcript_request_id,
+                tokens_used=tokens_used,
+                estimated_cost=estimated_cost,
+                word_count=word_count,
+                status="completed",
+                model=model,
+                summary=summary
+            )
+
+            # Format the summary with Markdown
+            if language == "ru":
+                formatted_summary = f"*Краткое содержание:*\n\n{summary}"
+            elif language == "en":
+                formatted_summary = f"*Summary:*\n\n{summary}"
+            else:
+                formatted_summary = f"*Summary in Original Language:*\n\n{summary}"
+
+            # Send the summary (if sending the whole text as one piece)
+            # await query.edit_message_text(formatted_summary, parse_mode="Markdown")
+
+            # Split the formatted summary into chunks of 4096 characters
+            max_length = 4096
+            for i in range(0, len(formatted_summary), max_length):
+                chunk = formatted_summary[i:i + max_length]
+                # await query.message.reply_text(chunk, parse_mode="Markdown")
+                await query.edit_message_text(chunk, parse_mode="Markdown")
+
+        except ValueError as e:
+            logger.error(f"Invalid transcript_request_id: {transcript_request_id}. Error: {e}")
+            await query.edit_message_text("Failed to generate summary. Invalid request ID.")
+        except FileNotFoundError as e:
+            logger.error(f"Transcript file not found: {e}")
+            await query.edit_message_text("Failed to generate summary. Transcript file not found.")
+        except Exception as e:
+            logger.error(f"Failed to summarize video {video_id} for user {user_id}: {e}")
+            # Log the failed summarization request in the database
+            await store_summarization_request_async(
+                user_id=user_id,
+                video_id=video_id,
+                language=language,
+                transcript_request_id=transcript_request_id,
+                tokens_used=0,
+                estimated_cost=0.0,
+                word_count=0,
+                status="failed"
+            )
+            await query.edit_message_text("Failed to generate summary. Please try again later.")
 
 # Main function to start the bot
 def main():

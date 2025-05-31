@@ -2,6 +2,7 @@
 import mysql.connector.pooling
 from mysql.connector import Error
 from config import DB_CONFIG
+from config import MODEL_TO_USE
 import logging
 import asyncio
 from contextlib import contextmanager
@@ -158,3 +159,30 @@ async def store_summarization_request_async(user_id, video_id, language, transcr
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, store_summarization_request, user_id, video_id, language, transcript_request_id, tokens_used, estimated_cost, word_count, status, model, summary)
 
+def get_summary_by_video_language(video_id, language, model=MODEL_TO_USE):
+    """
+    Retrieves the summary from summarization_requests table for a given video_id, language, and status 'completed'.
+    Returns the summary string if found, otherwise None.
+    """
+    try:
+        with db_cursor() as cursor:
+            query = """
+            SELECT summary FROM summarization_requests
+            WHERE video_id = %s AND language = %s AND model = %s AND status = 'completed' 
+            ORDER BY id DESC LIMIT 1
+            """
+            cursor.execute(query, (video_id, language, model))
+            result = cursor.fetchone()
+            if result:
+                logger.info(f"Summary fetched for video_id={video_id}, language={language}")
+                return result[0]
+            else:
+                logger.info(f"Summary NOT found for video_id={video_id}, language={language}")
+                return None
+    except Exception as e:
+        logger.error(f"Failed to fetch summary for video_id={video_id}, language={language}: {e}")
+        return None
+    
+async def get_summary_by_video_language_async(video_id, language, model=MODEL_TO_USE):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_summary_by_video_language, video_id, language, model)

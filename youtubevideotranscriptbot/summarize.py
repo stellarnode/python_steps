@@ -5,16 +5,27 @@ import logging
 from translate import translate_text  # Import the translation function
 from config import OPENAI_API_KEY
 from config import DEEPSEEK_API_KEY
+from config import MODEL_TO_USE  # Import the model selection
 import tiktoken
 from translate import split_text
 import math
+import asyncio
 
 # Set up OpenAI
 # openai.api_key = OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
-model_to_use = 2 # 1 for OpenAI, 2 for DeepSeek
+if MODEL_TO_USE:
+    if "gpt" in MODEL_TO_USE.lower():
+        model_to_use = 1  # OpenAI model
+    elif "deepseek" in MODEL_TO_USE.lower():
+        model_to_use = 2
+    else:
+        logger.error("Invalid model selection in config. Please select 'gpt' for OpenAI or 'deepseek' for DeepSeek.")
+        logger.warning("Falling back to DeepSeek model as default.")
+        model_to_use = 2 # 1 for OpenAI, 2 for DeepSeek
+        raise ValueError("Invalid model selection in config. Please select 'gpt' for OpenAI or 'deepseek' for DeepSeek.")
 
 if model_to_use == 1:
     tokens_per_chunk = 100000
@@ -35,8 +46,58 @@ else:
     logger.error("Invalid model selection. Please select 1 for OpenAI or 2 for DeepSeek.")
 
 
+async def summarize_chunk(chunk, language):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _summarize_sync, chunk, language)
+
+def _summarize_sync(chunk, language):
+    """
+    Synchronously summarizes a chunk of text using the OpenAI API.
+
+    Args:
+        chunk (str): A chunk of text to summarize.
+        language (str): The language of the text.
+
+    Returns:
+        summary (str): The summarized text.
+        tokens_used (int): The number of tokens used for the OpenAI API call.
+        estimated_cost (float): The estimated cost of the OpenAI API call.
+        word_count (int): The word count of the summary.
+    """
+    try:
+        # Define the prompt for summarization
+        system_role = "You are a master of extracting pearls of knowledge from YouTube video transcripts. You grasp the very essence and distill it in a concise form for users. You always provide the response in the same language in which the transcript is provided. Your answers are always clear, concise and nicely formatted."
+        prompt = (
+            f"If I did not have time to read this YouTube video transcript, what are the most important things I absolutely must know. Enlighten me in no more than 200 words. "
+            f"Always provide your response in the same language as the transcript. In this case it might be in '{language}' language. Here is the transcript itself:\n\n{chunk}"
+        )
+
+        response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_role},
+                    {"role": "user", "content": prompt},
+            ],
+                max_tokens=max_tokens,
+                temperature=0.5,
+                stream=False
+            )
+
+        # Access the response attributes correctly
+        summary = response.choices[0].message.content
+        tokens_used = response.usage.total_tokens
+        estimated_cost = (tokens_used / 1000) * 0.002  # Adjust based on DeepSeek pricing
+        word_count = len(summary.split())
+
+        return summary, tokens_used, estimated_cost, word_count
+
+    except Exception as e:
+        logger.error(f"Summarization failed for chunk: {e}")
+        raise
+
+
 # Summarize text using OpenAI GPT
-def summarize_text(text, language, num_key_points=3):
+async def summarize_text(text, language, num_key_points=3):
     """
     Summarizes the given text in the specified language.
 
@@ -82,103 +143,32 @@ def summarize_text(text, language, num_key_points=3):
     total_estimated_cost = 0.0
     total_word_count = 0
 
-    for chunk in chunks:
-        try:
-            # Define the prompt for summarization
-            system_role = "You are a master of extracting pearls of knowledge from YouTube video transcripts. You grasp the very essence and distill it in a concise form for users. You always provide the response in the same language in which the transcript is provided. Your answers are always clear, concise and nicely formatted."
-            prompt = (
-                f"If I did not have time to read this YouTube video transcript, what are the most important things I absolutely must know. Enlighten me in no more than 200 words. "
-                f"Always provide your response in the same language as the transcript. In this case it might be in '{language}' language. Here is the transcript itself:\n\n{chunk}"
-            )
+    try:
+        tasks = [summarize_chunk(chunk, language) for chunk in chunks]
+        results = await asyncio.gather(*tasks)
+    except Exception as e:
+        logger.error(f"Summarization process failed due to: {e}")
+        raise
 
-            response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_role},
-                        {"role": "user", "content": prompt},
-                ],
-                    max_tokens=max_tokens,
-                    temperature=0.5,
-                    stream=False
-                )
-
-            # if model_to_use == 1:
-            #     # Call the OpenAI API
-            #     response = openai.ChatCompletion.create(
-            #         model="gpt-3.5-turbo",
-            #         messages=[
-            #             {"role": "system", "content": system_role},
-            #             {"role": "user", "content": prompt}
-            #         ],
-            #         max_tokens=500,  # Increased token limit to ensure the summary is complete
-            #         temperature=0.5
-            #     )
-            # elif model_to_use == 2:
-            #     # DeepSeek API
-            #     response = client.chat.completions.create(
-            #         model="deepseek-chat",
-            #         messages=[
-            #             {"role": "system", "content": system_role},
-            #             {"role": "user", "content": prompt},
-            #     ],
-            #         max_tokens=1024,
-            #         temperature=0.5,
-            #         stream=False
-            #     )
-
-            # else:
-            #     logger.error("Invalid model selection. Please select 1 for OpenAI or 2 for DeepSeek.")
-
-            # summary = response['choices'][0]['message']['content']
-            # tokens_used = response['usage']['total_tokens']
-            # estimated_cost = (tokens_used / 1000) * 0.002  # Adjust based on GPT pricing
-            # word_count = len(summary.split())
-
-            # Access the response attributes correctly
-            summary = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens
-            estimated_cost = (tokens_used / 1000) * 0.002  # Adjust based on DeepSeek pricing
-            word_count = len(summary.split())
-
+    try:
+        for summary, tokens_used, estimated_cost, word_count in results:
             combined_summary += summary + "\n\n"
             total_tokens_used += tokens_used
             total_estimated_cost += estimated_cost
             total_word_count += word_count
-            logger.info(f"Chunk summarization successful: {word_count} words, {tokens_used} tokens, cost: ${estimated_cost:.2f}")
-        except Exception as e:
-            logger.error(f"Summarization failed for chunk: {e}")
-            raise
+            logger.info(f"Summarization successful: {word_count} words, {tokens_used} tokens, cost: ${estimated_cost:.2f}")
+    except Exception as e:
+        logger.error(f"Summarization failed: {e}")
+        raise
 
-
-    logger.info(f"Summarization completed for all chunks.")
+    logger.info(f"Summarization completed for all chunks.\nTotal word count: {total_word_count}.\nTotal tokens used: {total_tokens_used}.\nEstimated cost: ${total_estimated_cost:.2f}")
 
     return combined_summary.strip(), total_tokens_used, total_estimated_cost, total_word_count
 
-    # try:
-    #     # Define the prompt for summarization
-    #     prompt = (
-    #         f"If I did not have time to read this YouTube video transcript, what are the most important things I absolutely must know. Enlighten me in no more than 200 words. "
-    #         f"Always provide your response in the same language as the transcript. In this case it might be in '{language}' language. Here is the transcript itself:\n\n{text}"
-    #     )
 
-    #     # Call the OpenAI API
-    #     response = openai.ChatCompletion.create(
-    #         model="gpt-3.5-turbo",
-    #         messages=[
-    #             {"role": "system", "content": "You are a master of extracting pearls of knowledge from YouTube video transcripts. You grasp the very essense and distill it in a consice form for users. You always provide the response in the same language in which the transcript is provided. Your answers are always clear, consise and nicely formatted."},
-    #             {"role": "user", "content": prompt}
-    #         ],
-    #         max_tokens=500,  # Increased token limit to ensure the summary is complete
-    #         temperature=0.5
-    #     )
-    #     summary = response['choices'][0]['message']['content']
-    #     tokens_used = response['usage']['total_tokens']
-    #     estimated_cost = (tokens_used / 1000) * 0.002  # Adjust based on GPT pricing
-    #     word_count = len(summary.split())
-    #     return summary, tokens_used, estimated_cost, word_count
-    # except Exception as e:
-    #     logger.error(f"Summarization failed: {e}")
-    #     raise
+async def translate_summary_async(summary, src_lang, dest_lang):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, translate_summary, summary, src_lang, dest_lang)
 
 # Translate the summary into the target language
 def translate_summary(summary, src_lang, dest_lang):
@@ -203,7 +193,7 @@ def translate_summary(summary, src_lang, dest_lang):
         raise
 
 # Handle summarization request
-def handle_summarization_request(text, original_language, target_language, num_key_points=3):
+async def handle_summarization_request(text, original_language, target_language, num_key_points=3):
     """
     Handles the summarization request.
 
@@ -224,7 +214,7 @@ def handle_summarization_request(text, original_language, target_language, num_k
 
     try:
         # Summarize the original transcript
-        summary, tokens_used, estimated_cost, word_count = summarize_text(text, original_language, num_key_points)
+        summary, tokens_used, estimated_cost, word_count = await summarize_text(text, original_language, num_key_points)
 
         if target_language == 'orig':
             target_language = original_language
@@ -232,7 +222,7 @@ def handle_summarization_request(text, original_language, target_language, num_k
 
         # Translate the summary if the target language is not the original language
         if target_language != original_language:
-            summary = translate_summary(summary, src_lang=original_language, dest_lang=target_language)
+            summary = await translate_summary_async(summary, src_lang=original_language, dest_lang=target_language)
 
         return summary, tokens_used, estimated_cost, word_count, model
     except Exception as e:
