@@ -11,6 +11,8 @@ from transcript import get_all_transcripts, save_transcripts, normalize_language
 from summarize import handle_summarization_request
 from duration import format_duration  # Import the duration formatting function
 import openai
+import aiofiles
+import io
 
 # Set up OpenAI
 openai.api_key = OPENAI_API_KEY
@@ -39,7 +41,7 @@ def sanitize_filename(filename):
 async def start(update: Update, context: CallbackContext):
     logger.info(f"User {update.message.from_user.id} issued the /start command.")
     await update.message.reply_text(
-        "Welcome! Send me a YouTube link, and I'll fetch the video details and transcripts for you."
+        "Welcome! Send me a YouTube link, and I'll fetch the video details and transcripts for you. I can also summarize transcripts so that you can get the gist of the video quickly.\n\n"
     )
 
 # Help command
@@ -49,7 +51,10 @@ async def help_command(update: Update, context: CallbackContext):
         "How to use this bot:\n"
         "1. Send a YouTube video link.\n"
         "2. I'll fetch the video details and transcripts.\n"
-        "3. I'll send you the transcripts in .txt format."
+        "3. I'll send you the transcripts in .txt format.\n"
+        "4. You can also request a brief summary of the transcript.\n\n"
+        "✍️ Share feedback or report bugs: [click here](https://bit.ly/ytvtbot)",
+    parse_mode="Markdown"
     )
 
 # Handle YouTube links
@@ -132,58 +137,99 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         logger.info(f"Saving transcripts for video: {video_title} from channel: {channel_name}")
 
         # Save original transcripts
-        save_transcripts(transcript_list, base_filename)
+        transcripts = await save_transcripts(transcript_list, base_filename)
+        logger.info(f"Transcripts list returned from save_transcripts with length: {len(transcripts)}")
 
-        # Send transcript files to the user
-        transcript_folder = "transcripts"
-        logger.info(f"Looking for transcript files in: {transcript_folder}")
-        for filename in os.listdir(transcript_folder):
-            if filename.startswith(base_filename):
-                file_path = os.path.join(transcript_folder, filename)
-                logger.info(f"Found transcript file: {file_path}")
-                try:
-                    with open(file_path, 'rb') as f:
-                        await update.message.reply_document(document=InputFile(f), caption=f"Transcript: {filename}")
-                    logger.info(f"Sent transcript file: {filename} to user {user_id}.")
-                except Exception as e:
-                    logger.error(f"Failed to send transcript file {filename}: {e}")
-        logger.info(f"Transcripts sent to user {user_id} for video {video_id}.")
+        if transcripts:
+            context.user_data['video_id'] = video_id  # Store video_id_id for later use
+            context.user_data['transcripts'] = transcripts # Store transcript_request_id for later use
 
-        # Delete the temporary status message
+            try:
+                for transcript in transcripts:
+                    try:
+                        formatted_transcript = transcript['text']
+                        filename = transcript['filename']
+                        language_code = transcript['normalized_language_code']
+                        logger.info(f"Sending transcript for language: {language_code}")
+                        # Use BytesIO for binary mode (recommended for Telegram)
+                        file_obj = io.BytesIO(formatted_transcript.encode('utf-8'))
+                        file_obj.name = filename  # Telegram uses this as the filename
+
+                        await update.message.reply_document(document=InputFile(file_obj), caption=f"{filename}")
+                    except Exception as e:
+                        logger.error(f"Failed to send transcript for {transcript['language']}: {e}")
+                logger.info(f"Transcripts seems to be sent to user {user_id} for video {video_id}.")  
+            except Exception as e:
+                logger.error(f"Failed to send transcripts for video {video_id} to user {user_id}: {e}")
+        
+            # Send transcript files to the user
+            # transcript_folder = "transcripts"
+            # logger.info(f"Looking for transcript files in: {transcript_folder}")
+            # for filename in os.listdir(transcript_folder):
+            #     if filename.startswith(base_filename):
+            #         file_path = os.path.join(transcript_folder, filename)
+            #         logger.info(f"Found transcript file: {file_path}")
+            #         try:
+            #             with open(file_path, 'rb') as f:
+            #                 await update.message.reply_document(document=InputFile(f), caption=f"Transcript: {filename}")
+            #             logger.info(f"Sent transcript file: {filename} to user {user_id}.")
+            #         except Exception as e:
+            #             logger.error(f"Failed to send transcript file {filename}: {e}")
+            # logger.info(f"Transcripts sent to user {user_id} for video {video_id}.")
+
+            # Delete the temporary status message
+            try:
+                await context.bot.delete_message(chat_id=update.message.chat_id, message_id=status_message_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete the temporary status message: {e}.")
+
+            # Show summarization buttons
+            try:
+                original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
+                if original_language:
+                    logger.info(f"Original language determined as: {original_language}")
+            except:
+                original_language = next(iter(transcript_list)).language_code  # Get the language code of the first transcript
+                logger.warning(f"Original language could not be determined. Falling back to first random: {original_language}")
+
+
+            try:
+                original_language = normalize_language_code(original_language)
+            except:
+                pass
+            
+            logger.info(f"Using the following transcript_request_id to find transcript: {transcript_request_id}")
+
+            keyboard = []
+            if original_language not in ['en', 'ru']:
+                keyboard.append([InlineKeyboardButton("Summarize in original language", callback_data=f"sum&{video_id}&orig&{transcript_request_id}")])
+            keyboard.append([InlineKeyboardButton("Summarize in English", callback_data=f"sum&{video_id}&en&{transcript_request_id}")])
+            keyboard.append([InlineKeyboardButton("Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("Would you like a summary?", reply_markup=reply_markup)
+        else:
+            logger.warning(f"No transcripts retrieved for video {video_id}.")
+            logger.warning(f"YouTube API returned a non-empty transcript list.")
+
+            try:
+                await context.bot.delete_message(chat_id=update.message.chat_id, message_id=status_message_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete the temporary status message: {e}.")
+
+            await update.message.reply_text("❌ No transcripts available for this video. Try again in a few minutes or use a different link. There might be a problem with the video itself.")
+
+    else:
+        logger.warning(f"No transcripts retrieved for video {video_id}.")
+        logger.warning(f"YouTube API returned a non-empty transcript list.")
+
         try:
             await context.bot.delete_message(chat_id=update.message.chat_id, message_id=status_message_id)
         except Exception as e:
             logger.warning(f"Failed to delete the temporary status message: {e}.")
 
-        # Show summarization buttons
-        
-        try:
-            original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
-            if original_language:
-                logger.info(f"Original language determined as: {original_language}")
-        except:
-            original_language = next(iter(transcript_list)).language_code  # Get the language code of the first transcript
-            logger.warning(f"Original language could not be determined. Falling back to first random: {original_language}")
+        await update.message.reply_text("❌ No transcripts available for this video. Try again in a few minutes or use a different link. There might be a problem with the video itself.")
 
 
-        try:
-            original_language = normalize_language_code(original_language)
-        except:
-            pass
-        
-        logger.info(f"Using the following transcript_request_id to find transcript: {transcript_request_id}")
-
-        keyboard = []
-        if original_language not in ['en', 'ru']:
-            keyboard.append([InlineKeyboardButton("Summarize in original language", callback_data=f"sum&{video_id}&orig&{transcript_request_id}")])
-        keyboard.append([InlineKeyboardButton("Summarize in English", callback_data=f"sum&{video_id}&en&{transcript_request_id}")])
-        keyboard.append([InlineKeyboardButton("Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Would you like a summary?", reply_markup=reply_markup)
-    else:
-        logger.warning(f"No transcripts retrieved for video {video_id}.")
-        logger.warning(f"YouTube API returned: {transcript_list}")
-        await update.message.reply_text("No transcripts available for this video.")
 
 # Handle summarization button clicks
 async def handle_summarization_button(update: Update, context: CallbackContext):
@@ -238,38 +284,75 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
                 original_language = normalize_language_code(original_language)
             except:
                 pass
+
             transcript_filename = f"{transcript_folder}/{base_filename}_transcript_{original_language}.txt"
 
-            logger.info(f"Looking for transcript file: {transcript_filename}")
-            if not os.path.exists(transcript_filename):
-                logger.error(f"Transcript file not found: {transcript_filename}")
-                raise FileNotFoundError(f"Transcript file not found: {transcript_filename}")
+            try:
+                transcripts = context.user_data.get('transcripts', [])
+                
+                if transcripts:
+                    # print(transcripts)
+                    # Find the transcript for the original language
+                    transcript = next((t['text'] for t in transcripts if t['normalized_language_code'] == original_language), None)
+                    if transcript:
+                        # print(transcript)
+                        logger.info(f"Transcript found in user contextfor original language: {original_language}")
+                        # Handle summarization request
+                        logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
+                        logger.info(f"Text length to summarize is {len(transcript)} characters.")
+                        try:
+                            summary, tokens_used, estimated_cost, word_count, model = await handle_summarization_request(
+                                text=transcript,
+                                original_language=original_language,
+                                target_language=language,
+                                num_key_points=3
+                            )  
+                        except Exception as e:
+                            logger.error(f"Failed to produce summary from data in user context: {e}")
+                else:
+                    logger.info(f"No transcripts found in user context. Looking for transcript file: {transcript_filename}")
+            except Exception as e:
+                logger.error(f"Error retrieving transcripts from user context: {e}")
 
-            with open(transcript_filename, 'r', encoding='utf-8') as f:
-                transcript = f.read()
 
-            # Handle summarization request
-            logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
-            summary, tokens_used, estimated_cost, word_count, model = await handle_summarization_request(
-                text=transcript,
-                original_language=original_language,
-                target_language=language,
-                num_key_points=3
-            )
+            if not transcripts or not transcript:
+                # If no transcript found in user context, read from file
+                logger.info(f"Looking for transcript file: {transcript_filename}")
+                if not os.path.exists(transcript_filename):
+                    logger.error(f"Transcript file not found: {transcript_filename}")
+                    raise FileNotFoundError(f"Transcript file not found: {transcript_filename}")
 
-            # Log the summarization request in the database
-            await store_summarization_request_async(
-                user_id=user_id,
-                video_id=video_id,
-                language=language,
-                transcript_request_id=transcript_request_id,
-                tokens_used=tokens_used,
-                estimated_cost=estimated_cost,
-                word_count=word_count,
-                status="completed",
-                model=model,
-                summary=summary
-            )
+                with open(transcript_filename, 'r', encoding='utf-8') as f:
+                    transcript = f.read()
+
+                # Handle summarization request
+                logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
+                try:
+                    summary, tokens_used, estimated_cost, word_count, model = await handle_summarization_request(
+                        text=transcript,
+                        original_language=original_language,
+                        target_language=language,
+                        num_key_points=3
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to produce summary from file stored on disk: {e}")
+
+            try:
+                # Log the summarization request in the database
+                await store_summarization_request_async(
+                    user_id=user_id,
+                    video_id=video_id,
+                    language=language,
+                    transcript_request_id=transcript_request_id,
+                    tokens_used=tokens_used,
+                    estimated_cost=estimated_cost,
+                    word_count=word_count,
+                    status="completed",
+                    model=model,
+                    summary=summary
+                )
+            except Exception as e:
+                logger.error(f"Failed to store summarization request in the database: {e}")
 
             # Format the summary with Markdown
             if language == "ru":
