@@ -216,7 +216,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
             except Exception as e:
                 logger.warning(f"Failed to delete the temporary status message: {e}.")
 
-            await update.message.reply_text("❌ No transcripts available for this video. Try again in a few minutes or use a different link. There might be a problem with the video itself.")
+            await update.message.reply_text("❌ No transcripts available for this video. Try again in a few minutes or use a different link. YouTube might be blocking access.")
 
     else:
         logger.warning(f"No transcripts retrieved for video {video_id}.")
@@ -227,7 +227,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         except Exception as e:
             logger.warning(f"Failed to delete the temporary status message: {e}.")
 
-        await update.message.reply_text("❌ No transcripts available for this video. Try again in a few minutes or use a different link. There might be a problem with the video itself.")
+        await update.message.reply_text("❌ No transcripts available for this video. Try again in a few minutes or use a different link. YouTube might be blocking access.")
 
 
 

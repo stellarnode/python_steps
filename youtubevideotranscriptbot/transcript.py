@@ -1,13 +1,19 @@
 # transcript.py
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.proxies import GenericProxyConfig
+from youtube_transcript_api.proxies import WebshareProxyConfig
 from youtube_transcript_api.formatters import TextFormatter
+# from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound, TooManyRequests
 import os
 import logging
 from translate import translate_text  # Import the translation function
 from config import MODEL_TO_USE  # Import the model selection
+from config import PROXY_USERNAME
+from config import PROXY_PASSWORD
 from model_params import get_model_params
 import aiofiles
 import asyncio
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +22,51 @@ def normalize_language_code(language_code):
     # Split on hyphen and take the first part
     return language_code.split('-')[0]
 
+def test_proxy():
+    # Test the proxy directly
+    proxy_config = WebshareProxyConfig(
+        proxy_username=PROXY_USERNAME,
+        proxy_password=PROXY_PASSWORD
+    )
+
+    # Get the proxy dict
+    logger.info(f"Testing... proxy_config methods: {dir(proxy_config)}")
+    proxy_dict = proxy_config.to_requests_dict()
+
+    # Test with a simple request
+    try:
+        response = requests.get("https://httpbin.org/ip", proxies=proxy_dict, timeout=10)
+        logger.info(f"Proxy working! Your IP: {response.json()}")
+    except Exception as e:
+        logger.info(f"Proxy failed: {e}")
+
+    return
+
+
 # Get all available transcripts
 def get_all_transcripts(video_id):
+    
+    # try:
+    #     test_proxy()
+    # except Exception as e:
+    #     logger.error(f"Failed to test proxy: {e}")
+
+    if len(PROXY_PASSWORD) > 0 and len(PROXY_USERNAME) > 0:
+        logger.info(f"Using proxy configuration. You can fall back to default by removing PROXY_USERNAME and PROXY_PASSWORD from config.")
+        ytt_api = YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(
+                proxy_username=PROXY_USERNAME,
+                proxy_password=PROXY_PASSWORD,
+            )
+        )
+    else:
+        logger.info(f"Using default YouTubeTranscriptApi without proxy.")
+        ytt_api = YouTubeTranscriptApi()
+
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        # logger.info(f"Available methods for YouTubeTranscriptApi: {dir(YouTubeTranscriptApi)}")
+        transcript_list = ytt_api.list(video_id)
+        # logger.info(f"Available methods for TranscriptList: {dir(transcript_list)}")
         # print("Available transcripts:\n")
         # print(transcript_list)
         logger.info(f"Transcripts seem to have been received from YouTube.\n")
@@ -39,12 +86,33 @@ def get_all_transcripts(video_id):
         else:
             logger.info(f"Transcript list is not empty. Successfully fetched transcripts list for video ID: {video_id}")
         return transcript_list
+    
+    # except (TranscriptsDisabled, NoTranscriptFound):
+    #     logger.warning(f"No transcripts for video {video_id}")
+    #     return None
+    # except TooManyRequests:
+    #     logger.error("YouTube rate limit hit. Consider adding a delay or proxy.")
+    #     # Optionally: sleep and retry
+    #     return None
     except Exception as e:
-        logger.error(f"An error occurred while fetching transcripts: {e}")
+        logger.error(f"Unexpected error for video {video_id}: {e}")
         return None
 
 # Save transcripts and translate if necessary
 async def save_transcripts(transcript_list, base_filename):
+    
+    if len(PROXY_PASSWORD) > 0 and len(PROXY_USERNAME) > 0:
+        logger.info(f"Using proxy configuration. You can fall back to default by removing PROXY_USERNAME and PROXY_PASSWORD from config.")
+        ytt_api = YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(
+                proxy_username=PROXY_USERNAME,
+                proxy_password=PROXY_PASSWORD,
+            )
+        )
+    else:
+        logger.info(f"Using default YouTubeTranscriptApi without proxy.")
+        ytt_api = YouTubeTranscriptApi()
+    
     formatter = TextFormatter()
     os.makedirs("transcripts", exist_ok=True)  # Create the transcripts directory if it doesn't exist
     transcripts = []
@@ -53,6 +121,11 @@ async def save_transcripts(transcript_list, base_filename):
     # Set to True if you require translations of the transcripts.
     # By default, I turned off this feature to avoid unnecessary API calls.
     translation_needed = {"en": True, "ru": False}
+
+    # try:
+    #     logger.info(f"Checking the length of transcript_list: {len(transcript_list)}")
+    # except Exception as e:
+    #     logger.error(f"Failed to get the length of transcript_list: {e}")
 
     for transcript in transcript_list:
         language_code = transcript.language_code
@@ -76,8 +149,8 @@ async def save_transcripts(transcript_list, base_filename):
         retry_attempts = 3
         for attempt in range(1, retry_attempts + 1):
             try:
-                transcript_data = transcript.fetch()
-                logger.info(f"Transcript data from fetch attempt with keys: {transcript_data.keys()}")
+                transcript_data = transcript.fetch() # ytt_api.fetch(transcript.video_id)
+                logger.info(f"Transcript data from fetch attempt: {str(transcript_data)[:300]}")
                 break
             except Exception as e:
                 logger.warning(f"Fetch failed for {language} (attempt {attempt}): {e}")
