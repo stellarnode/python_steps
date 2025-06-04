@@ -5,6 +5,8 @@ import logging
 from translate import translate_text  # Import the translation function
 from translate import split_text
 from model_params import get_model_params
+from database import store_summarization_request_async
+from utils import get_token_count
 from config import OPENAI_API_KEY
 from config import DEEPSEEK_API_KEY
 from config import MODEL_TO_USE  # Import the model selection
@@ -17,42 +19,11 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
-
-# if MODEL_TO_USE:
-#     if "gpt" in MODEL_TO_USE.lower():
-#         model_to_use = 1  # OpenAI model
-#     elif "deepseek" in MODEL_TO_USE.lower():
-#         model_to_use = 2
-#     else:
-#         logger.error("Invalid model selection in config. Please select 'gpt' for OpenAI or 'deepseek' for DeepSeek.")
-#         logger.warning("Falling back to DeepSeek model as default.")
-#         model_to_use = 2 # 1 for OpenAI, 2 for DeepSeek
-#         raise ValueError("Invalid model selection in config. Please select 'gpt' for OpenAI or 'deepseek' for DeepSeek.")
-
-# if model_to_use == 1:
-#     tokens_per_chunk = 100000
-#     max_chunks_allowed = 4
-#     max_tokens = 1024
-#     model = "gpt-4o-mini"
-#     client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
-#     logger.info(f"Using OpenAI {model} model for summarization.")
-# elif model_to_use == 2:
-#     tokens_per_chunk = 64000
-#     max_chunks_allowed = 5
-#     max_tokens = 1024
-#     model = "deepseek-chat"
-#     # for DeepSeek backward compatibility, you can still use `https://api.deepseek.com/v1` as `base_url`.
-#     client = openai.OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
-#     logger.info(f"Using DeepSeek {model} for summarization.")
-# else:
-#     logger.error("Invalid model selection. Please select 1 for OpenAI or 2 for DeepSeek.")
-
-
-async def summarize_chunk(chunk, language):
+async def summarize_chunk(chunk, language, model=MODEL_TO_USE):
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _summarize_sync, chunk, language)
+    return await loop.run_in_executor(None, _summarize_sync, chunk, language, model)
 
-def _summarize_sync(chunk, language):
+def _summarize_sync(chunk, language, model=MODEL_TO_USE):
     """
     Synchronously summarizes a chunk of text using the OpenAI API.
 
@@ -66,7 +37,12 @@ def _summarize_sync(chunk, language):
         estimated_cost (float): The estimated cost of the OpenAI API call.
         word_count (int): The word count of the summary.
     """
-    model_params = get_model_params(MODEL_TO_USE)
+    
+    if not model:
+        model_params = get_model_params(MODEL_TO_USE)
+    else:
+        model_params = get_model_params(model)
+    logger.info(f"Using model: {model_params['model']} for summarization.")
 
     try:
         # Define the prompt for summarization
@@ -94,7 +70,7 @@ def _summarize_sync(chunk, language):
         # Access the response attributes correctly
         summary = response.choices[0].message.content
         tokens_used = response.usage.total_tokens
-        estimated_cost = (tokens_used / 1000) * 0.002  # Adjust based on DeepSeek pricing
+        estimated_cost = (tokens_used / 100000) * model_params["cost_per_100k_tokens_output"]  # Adjust based on DeepSeek pricing
         word_count = len(summary.split())
 
         return summary, tokens_used, estimated_cost, word_count
@@ -105,7 +81,7 @@ def _summarize_sync(chunk, language):
 
 
 # Summarize text using OpenAI GPT
-async def summarize_text(text, language, num_key_points=3):
+async def summarize_text(text, language, model=MODEL_TO_USE, num_key_points=3):
     """
     Summarizes the given text in the specified language.
 
@@ -121,19 +97,10 @@ async def summarize_text(text, language, num_key_points=3):
         word_count (int): The word count of the summary.
     """
 
-    tokens_per_chunk, max_chunks_allowed, max_tokens, model, client = get_model_params(MODEL_TO_USE).values()
+    tokens_per_chunk, max_chunks_allowed, max_tokens, model, client, cost_input, cost_output = get_model_params(model).values()
     logger.info(f"Tokens per chunk: {tokens_per_chunk} of type {type(tokens_per_chunk)}")
 
-    try:
-        # Load the encoding for the model you're using (e.g., gpt-3.5-turbo)
-        encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-
-        # Count tokens
-        token_count = len(encoding.encode(text))
-        logger.info(f"Token count for transcript submitted for summarization: {token_count}")
-    except Exception as e:
-        logger.error(f"Token count failed: {e}")
-        raise
+    token_count = get_token_count(text, model=model)
 
     if token_count:
         number_of_chunks = token_count / int(tokens_per_chunk) # 15,000 tokens per chunk for GPT-3.5-turbo
@@ -151,11 +118,11 @@ async def summarize_text(text, language, num_key_points=3):
 
     combined_summary = ""
     total_tokens_used = 0
-    total_estimated_cost = 0.0
+    total_estimated_cost = token_count / 100000 * cost_input
     total_word_count = 0
 
     try:
-        tasks = [summarize_chunk(chunk, language) for chunk in chunks]
+        tasks = [summarize_chunk(chunk, language, model) for chunk in chunks]
         results = await asyncio.gather(*tasks)
     except Exception as e:
         logger.error(f"Summarization process failed due to: {e}")
@@ -182,7 +149,7 @@ async def summarize_text(text, language, num_key_points=3):
 #     return await loop.run_in_executor(None, translate_summary, summary, src_lang, dest_lang)
 
 # Translate the summary into the target language
-async def translate_summary(summary, src_lang, dest_lang):
+async def translate_summary(summary, src_lang, dest_lang, model=MODEL_TO_USE):
     """
     Translates the summary into the target language.
 
@@ -194,19 +161,23 @@ async def translate_summary(summary, src_lang, dest_lang):
     Returns:
         translated_summary (str): The translated summary.
     """
-    model_params = get_model_params(MODEL_TO_USE)
+    if not model:
+        model_params = get_model_params(MODEL_TO_USE)
+    else:
+        model_params = get_model_params(model)
+    logger.info(f"Using model: {model_params['model']} for summary translation.")
 
     try:
-        translated_summary, total_tokens_used, total_estimated_cost, total_word_count = await translate_text(summary, src_lang=src_lang, dest_lang=dest_lang, model_params=model_params)
+        translated_summary, tokens_used, estimated_cost, word_count = await translate_text(summary, src_lang=src_lang, dest_lang=dest_lang, model_params=model_params)
         if not translated_summary:
             raise Exception("Translation failed.")
-        return translated_summary
+        return translated_summary, tokens_used, estimated_cost, word_count
     except Exception as e:
         logger.error(f"Translation failed: {e}")
         raise
 
 # Handle summarization request
-async def handle_summarization_request(text, original_language, target_language, num_key_points=3):
+async def handle_summarization_request(text, original_language, target_language, summary_properties, model=MODEL_TO_USE, num_key_points=3):
     """
     Handles the summarization request.
 
@@ -225,19 +196,59 @@ async def handle_summarization_request(text, original_language, target_language,
 
     logger.info(f"Summarization is handled for original language '{original_language}' and target '{target_language}'")
 
-    model_params = get_model_params(MODEL_TO_USE)
+    if not model:
+        model_params = get_model_params(MODEL_TO_USE)
+    else:
+        model_params = get_model_params(model)
+    logger.info(f"Using model: {model_params['model']} for summarization.")
 
     try:
    
-        summary, tokens_used, estimated_cost, word_count = await summarize_text(text, original_language, num_key_points)
+        summary, tokens_used, estimated_cost, word_count = await summarize_text(text, original_language, model_params['model'], num_key_points)
         if target_language == 'orig':
             target_language = original_language
 
-        logger.info(f"Summary generated in {target_language} language. Translation skipped.")
+        logger.info(f"Summary generated in requested language {target_language}. Translation skipped.")
+
+        try:
+            # Log the summarization request in the database
+            await store_summarization_request_async(
+                user_id=summary_properties['user_id'],
+                video_id=summary_properties['video_id'],
+                language=original_language,
+                transcript_request_id=summary_properties['transcript_request_id'],
+                tokens_used=tokens_used,
+                estimated_cost=estimated_cost,
+                word_count=word_count,
+                status="completed",
+                model=model_params['model'],
+                summary=summary
+            )
+            logger.info(f"Summary generated in requested language {target_language} stored in DB.")
+        except Exception as e:
+            logger.error(f"Failed to store summarization request in the database for original language {original_language}: {e}")
 
         # Translate the summary if the target language is not the original language
         if target_language != original_language:
-            summary = await translate_summary(summary, src_lang=original_language, dest_lang=target_language)
+            summary, tokens_used, estimated_cost, word_count = await translate_summary(summary, src_lang=original_language, dest_lang=target_language)
+
+            try:
+                # Log the summarization request in the database
+                await store_summarization_request_async(
+                    user_id=summary_properties['user_id'],
+                    video_id=summary_properties['video_id'],
+                    language=target_language,
+                    transcript_request_id=summary_properties['transcript_request_id'],
+                    tokens_used=tokens_used,
+                    estimated_cost=estimated_cost,
+                    word_count=word_count,
+                    status="completed",
+                    model=model_params['model'],
+                    summary=summary
+                )
+                logger.info(f"Summary translated into target language {target_language} stored in DB.")
+            except Exception as e:
+                logger.error(f"Failed to store summarization request for translation into {target_language}: {e}")
 
         return summary, tokens_used, estimated_cost, word_count, model_params['model']
     except Exception as e:

@@ -186,3 +186,99 @@ def get_summary_by_video_language(video_id, language, model=MODEL_TO_USE):
 async def get_summary_by_video_language_async(video_id, language, model=MODEL_TO_USE):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, get_summary_by_video_language, video_id, language, model)
+
+def insert_transcript(transcript_properties):
+    """
+    Inserts a transcript record into the transcripts table.
+    """
+    try:
+        video_id = transcript_properties.get('video_id')
+        video_title = transcript_properties.get('video_title')
+        channel_name = transcript_properties.get('channel_name')
+        channel_id = transcript_properties.get('channel_id')
+        duration = transcript_properties.get('duration')
+        video_url = transcript_properties.get('video_url')
+        user_id = transcript_properties.get('user_id')
+        language_code = transcript_properties.get('language_code')
+        normalized_language_code = transcript_properties.get('normalized_language_code')
+        is_generated = transcript_properties.get('is_generated', True)
+        text = transcript_properties.get('text', '')
+        filename = transcript_properties.get('filename', '')
+        base_filename = transcript_properties.get('base_filename', '')
+        type = transcript_properties.get('type', 'transcript')
+        summary = transcript_properties.get('summary', '')
+        word_count = transcript_properties.get('word_count', 0)
+        tokens_used = transcript_properties.get('tokens_used', 0)
+        estimated_cost = transcript_properties.get('estimated_cost', 0.0)
+        model = transcript_properties.get('model', MODEL_TO_USE)
+
+        with db_cursor() as cursor:
+            query = """
+            INSERT INTO transcripts (
+                video_id, video_title, channel_name, channel_id, duration, video_url, 
+                user_id, language_code, normalized_language_code,
+                is_generated, text, filename, base_filename, type, summary, word_count,
+                tokens_used, estimated_cost, model
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (
+                video_id, video_title, channel_name, channel_id, duration, video_url, 
+                user_id, language_code, normalized_language_code,
+                is_generated, text, filename, base_filename, type, summary, word_count,
+                tokens_used, estimated_cost, model
+            ))
+            logger.info(f"Inserted transcript for video_id={video_id}, user_id={user_id}, language_code={language_code}")
+    except Exception as e:
+        logger.error(f"Failed to insert transcript: {e}")
+        raise
+
+async def insert_transcript_async(transcript_properties):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        insert_transcript,transcript_properties
+    )
+
+def get_existing_transcripts(video_id, normalized_language_code=None):
+    """
+    Retrieves all transcripts from the transcripts table for a given video_id and optional language_code.
+    Returns a list of transcript dicts (can be empty if none found).
+    """
+    try:
+        with db_cursor() as cursor:
+            if normalized_language_code:
+                query = """
+                SELECT video_id, video_title, channel_name, channel_id, duration, video_url, 
+                    user_id, language_code, normalized_language_code,
+                    is_generated, text, filename, base_filename, type, summary, word_count,
+                    tokens_used, estimated_cost, model
+                FROM transcripts
+                WHERE video_id = %s AND (normalized_language_code = %s OR normalized_language_code = 'en' OR normalized_language_code = 'ru')
+                ORDER BY id DESC
+                """
+                cursor.execute(query, (video_id, normalized_language_code))
+            else:
+                query = """
+                SELECT video_id, video_title, channel_name, channel_id, duration, video_url, 
+                    user_id, language_code, normalized_language_code,
+                    is_generated, text, filename, base_filename, type, summary, word_count,
+                    tokens_used, estimated_cost, model
+                FROM transcripts
+                WHERE video_id = %s
+                ORDER BY id DESC
+                """
+                cursor.execute(query, (video_id,))
+
+            rows = cursor.fetchall()
+            keys = ["video_id", "video_title", "channel_name", "channel_id", "duration", "video_url", 
+                    "user_id", "language_code", "normalized_language_code",
+                    "is_generated", "text", "filename", "base_filename", "type", "summary", "word_count",
+                    "tokens_used", "estimated_cost", "model"]
+            return [dict(zip(keys, row)) for row in rows]
+    except Exception as e:
+        logger.error(f"Failed to fetch transcripts for video_id={video_id}, language_code={normalized_language_code}: {e}")
+        return []
+
+async def get_existing_transcripts_async(video_id, normalized_language_code=None):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_existing_transcripts, video_id, normalized_language_code)

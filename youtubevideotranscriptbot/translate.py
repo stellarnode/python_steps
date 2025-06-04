@@ -5,6 +5,7 @@ import time
 import openai
 import asyncio
 from model_params import get_model_params
+from utils import get_token_count
 from config import MODEL_TO_USE  # Import the model selection
 import tiktoken
 import math
@@ -25,22 +26,6 @@ def split_text(text, chunk_size=2000):
     """
     Split the text into chunks of approximately 4000 characters without breaking words.
     """
-    # chunks = []
-    # current_chunk = ""
-    # words = text.split()
-
-    # for word in words:
-    #     if len(current_chunk) + len(word) + 1 <= chunk_size:
-    #         current_chunk += word + " "
-    #     else:
-    #         if current_chunk:
-    #             chunks.append(current_chunk.strip())
-    #         current_chunk = word + " "
-    
-    # if current_chunk:
-    #     chunks.append(current_chunk.strip())
-    
-    # return chunks
 
     chunks = []
     while len(text) > chunk_size:
@@ -53,23 +38,6 @@ def split_text(text, chunk_size=2000):
         text = text[split_at:].lstrip()  # Remove leading whitespace from the remaining text
     chunks.append(text)
     return chunks
-
-
-# async def translate_chunk_async(chunk, src_lang='auto', dest_lang='en', max_retries=3, model_params=None):
-#     """
-#     Asynchronously translate a chunk of text from the source language to the target language.
-    
-#     Args:
-#         chunk (str): The text chunk to translate.
-#         src_lang (str): The source language code (e.g., "en").
-#         dest_lang (str): The target language code (e.g., "ru").
-#         max_retries (int): The maximum number of retries for translation.
-    
-#     Returns:
-#         str: The translated text chunk.
-#     """
-#     loop = asyncio.get_event_loop()
-#     return await loop.run_in_executor(None, translate_chunk, chunk, src_lang, dest_lang, max_retries, model_params)
 
 
 async def translate_chunk(chunk, src_lang='auto', dest_lang='en', max_retries=3, model_params=None):
@@ -100,7 +68,7 @@ async def translate_chunk(chunk, src_lang='auto', dest_lang='en', max_retries=3,
             # Access the response attributes correctly
             translation = response.choices[0].message.content
             tokens_used = response.usage.total_tokens
-            estimated_cost = (tokens_used / 1000) * 0.002  # Adjust based on DeepSeek pricing
+            estimated_cost = (tokens_used / 100000) * model_params["cost_per_100k_tokens_output"]  # Adjust based on DeepSeek pricing
             word_count = len(translation.split())
             logger.info(f"Translation successful for a chunk: {word_count} words, {tokens_used} tokens, cost: ${estimated_cost:.2f}")
             return translation, tokens_used, estimated_cost, word_count
@@ -130,11 +98,6 @@ async def translate_chunk(chunk, src_lang='auto', dest_lang='en', max_retries=3,
         except Exception as e:
             logger.error(f"Translation failed: {src_lang} --> {dest_lang}: {e}")
             return None
-    
-
-# async def translate_text_async(text, src_lang='auto', dest_lang='en', max_retries=3, model_params=None):
-#     loop = asyncio.get_event_loop()
-#     return await loop.run_in_executor(None, translate_text, text, src_lang, dest_lang, max_retries, model_params)
 
 
 # Translate text in chunks to handle large inputs
@@ -160,18 +123,9 @@ async def translate_text(text, src_lang='auto', dest_lang='en', max_retries=3, m
     dest_lang = normalize_language_code(dest_lang)
 
     if model_params:
-        tokens_per_chunk, max_chunks_allowed, max_tokens, model, client = model_params.values()
+        tokens_per_chunk, max_chunks_allowed, max_tokens, model, client, cost_input, cost_output = model_params.values()
 
-        try:
-            # Load the encoding for the model you're using (e.g., gpt-3.5-turbo)
-            encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-
-            # Count tokens
-            token_count = len(encoding.encode(text))
-            logger.info(f"Token count for transcript submitted for summarization: {token_count}")
-        except Exception as e:
-            logger.error(f"Token count failed: {e}")
-            raise
+        token_count = get_token_count(text, model=model)
 
         if token_count:
             number_of_chunks = token_count / tokens_per_chunk # 15,000 tokens per chunk for GPT-3.5-turbo
@@ -196,7 +150,10 @@ async def translate_text(text, src_lang='auto', dest_lang='en', max_retries=3, m
 
     combined_translation = ""
     total_tokens_used = 0
-    total_estimated_cost = 0.0
+    if not model_params:
+        total_estimated_cost = 0.0
+    else:
+        total_estimated_cost = token_count / 100000 * cost_input
     total_word_count = 0
 
     try:
