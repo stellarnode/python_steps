@@ -55,54 +55,60 @@ def get_all_transcripts(video_id):
 
     if len(PROXY_PASSWORD) > 0 and len(PROXY_USERNAME) > 0:
         logger.info(f"Using proxy configuration. You can fall back to default by removing PROXY_USERNAME and PROXY_PASSWORD from config.")
-        ytt_api = YouTubeTranscriptApi(
+        ytt_api_proxied = YouTubeTranscriptApi(
             proxy_config=WebshareProxyConfig(
                 proxy_username=PROXY_USERNAME,
                 proxy_password=PROXY_PASSWORD,
             )
         )
-    else:
-        logger.info(f"Using default YouTubeTranscriptApi without proxy.")
-        ytt_api = YouTubeTranscriptApi()
+ 
+    logger.info(f"Using default YouTubeTranscriptApi without proxy.")
+    ytt_api = YouTubeTranscriptApi()
 
     try:
         # logger.info(f"Available methods for YouTubeTranscriptApi: {dir(YouTubeTranscriptApi)}")
         transcript_list = ytt_api.list(video_id)
-        # logger.info(f"Available methods for TranscriptList: {dir(transcript_list)}")
-        # print("Available transcripts:\n")
-        # print(transcript_list)
-        logger.info(f"Transcripts seem to have been received from YouTube.\n")
-        if not transcript_list:
-            logger.info(f"Or maybe not...\n")
+        if transcript_list:
+            logger.info(f"Transcript list is not empty. Fetched transcripts list for video ID: {video_id}")
         else:
-            logger.info(f"Transcript list is not empty. Successfully fetched transcripts list for video ID: {video_id}")
-        return transcript_list
-    
-    # except (TranscriptsDisabled, NoTranscriptFound):
-    #     logger.warning(f"No transcripts for video {video_id}")
-    #     return None
-    # except TooManyRequests:
-    #     logger.error("YouTube rate limit hit. Consider adding a delay or proxy.")
-    #     # Optionally: sleep and retry
-    #     return None
+            logger.info(f"Transcript list is empty. No transcripts found without proxy for video ID: {video_id}")
     except Exception as e:
-        logger.error(f"Unexpected error for video {video_id}: {e}")
-        return None
+        logger.error(f"Failed to fetch transcript list without proxy for video {video_id}: {e}")
+        transcript_list = None
+
+    if not transcript_list and ytt_api_proxied:
+        try:
+            logger.info(f"Attempting to fetch transcripts with proxy configuration.")
+            transcript_list = ytt_api_proxied.list(video_id)
+            # logger.info(f"Available methods for TranscriptList: {dir(transcript_list)}")
+            # print("Available transcripts:\n")
+            # print(transcript_list)
+            if not transcript_list:
+                logger.info(f"Transcript list is empty. No transcripts found with proxy for video ID: {video_id}")
+            else:
+                logger.info(f"Transcript list is not empty. Fetched transcripts list with proxy for video ID: {video_id}")
+    
+        except Exception as e:
+            logger.error(f"Unexpected error for video {video_id}: {e}")
+            return None
+
+    return transcript_list
+
 
 # Save transcripts and translate if necessary
 async def save_transcripts(transcript_list, base_filename, transcript_properties=None):
     
     if len(PROXY_PASSWORD) > 0 and len(PROXY_USERNAME) > 0:
         logger.info(f"Using proxy configuration. You can fall back to default by removing PROXY_USERNAME and PROXY_PASSWORD from config.")
-        ytt_api = YouTubeTranscriptApi(
+        ytt_api_proxied = YouTubeTranscriptApi(
             proxy_config=WebshareProxyConfig(
                 proxy_username=PROXY_USERNAME,
                 proxy_password=PROXY_PASSWORD,
             )
         )
-    else:
-        logger.info(f"Using default YouTubeTranscriptApi without proxy.")
-        ytt_api = YouTubeTranscriptApi()
+  
+    logger.info(f"Creating default YouTubeTranscriptApi without proxy.")
+    ytt_api = YouTubeTranscriptApi()
     
     formatter = TextFormatter()
     os.makedirs("transcripts", exist_ok=True)  # Create the transcripts directory if it doesn't exist
@@ -130,21 +136,31 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
     #     is_generated = transcript.is_generated
 
         logger.info(f"Fetching transcript for language: {language} ({normalized_language_code})")
+        logger.info(f"Attempting to fetch without proxy")
         
-        # Retry logic for fetching transcript
-        retry_attempts = 3
-        for attempt in range(1, retry_attempts + 1):
-            try:
-                transcript_data = ytt_api.fetch(transcript_properties.get('video_id'), languages=[language_code]) # ytt_api.fetch(transcript.video_id)
-                logger.info(f"Transcript data from fetch attempt: {str(transcript_data)[:500]}")
-                break
-            except Exception as e:
-                logger.warning(f"Fetch failed for {language} (attempt {attempt}): {e}")
-                if attempt < retry_attempts:
-                    await asyncio.sleep(1.5)
-                else:
-                    logger.error(f"Giving up on {language} after {retry_attempts} attempts.")
-                    transcript_data = None
+        try:
+            transcript_data = ytt_api.fetch(transcript_properties.get('video_id'), languages=[language_code])
+            logger.info(f"Transcript data from fetch attempt: {str(transcript_data)[:500]}")
+        except Exception as e:
+            logger.warning(f"Fetch without proxy failed for {language}: {e}")
+            transcript_data = None
+
+        if not transcript_data and ytt_api_proxied:
+            await asyncio.sleep(1.5)
+            # Retry logic for fetching transcript
+            retry_attempts = 3
+            for attempt in range(1, retry_attempts + 1):
+                try:
+                    transcript_data = ytt_api_proxied.fetch(transcript_properties.get('video_id'), languages=[language_code]) # ytt_api.fetch(transcript.video_id)
+                    logger.info(f"Transcript data from fetch attempt: {str(transcript_data)[:500]}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Fetch failed for {language} (attempt {attempt}): {e}")
+                    if attempt < retry_attempts:
+                        await asyncio.sleep(2)
+                    else:
+                        logger.error(f"Giving up on {language} after {retry_attempts} attempts.")
+                        transcript_data = None
 
         if not transcript_data:
             continue
