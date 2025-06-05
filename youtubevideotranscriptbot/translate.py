@@ -7,7 +7,6 @@ import asyncio
 from model_params import get_model_params
 from utils import get_token_count
 from config import MODEL_TO_USE  # Import the model selection
-import tiktoken
 import math
 
 logger = logging.getLogger(__name__)

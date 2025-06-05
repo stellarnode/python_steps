@@ -1,6 +1,5 @@
 # summarize.py
 import openai
-import deepseek
 import logging
 from translate import translate_text  # Import the translation function
 from translate import split_text
@@ -10,7 +9,6 @@ from utils import get_token_count
 from config import OPENAI_API_KEY
 from config import DEEPSEEK_API_KEY
 from config import MODEL_TO_USE  # Import the model selection
-import tiktoken
 import math
 import asyncio
 
