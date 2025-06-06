@@ -8,3 +8,4 @@ openai==1.65.1 # 0.28.0  # Add this line
 tiktoken==0.9.0
 deepseek==1.0.0
 aiofiles>=0.4.0
+amplitude-analytics==1.1.5

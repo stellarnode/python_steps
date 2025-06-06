@@ -4,15 +4,19 @@ import re
 import logging
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
-from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE
+from telegram.error import TelegramError
+from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE, ENVIRONMENT, AMPLITUDE_API_KEY
 from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async, get_summary_by_video_language_async, get_existing_transcripts_async, insert_transcript_async
 from youtube_api import extract_video_id, get_video_details, get_channel_subscribers
 from transcript import get_all_transcripts, save_transcripts, normalize_language_code
 from summarize import handle_summarization_request
-from duration import format_duration  # Import the duration formatting function
+from duration import format_duration
+from analytics import track_event
 import openai
 import aiofiles
 import io
+from amplitude import Amplitude, BaseEvent
+import os
 
 # Set up OpenAI
 openai.api_key = OPENAI_API_KEY
@@ -28,6 +32,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+async def error_handler(update, context):
+    logger.error(f"Exception while handling an update: {context.error}")
+    if update and update.effective_user:
+        user_id = update.effective_user.id
+        logger.error(f"User {user_id} may have blocked the bot.")
+    else:
+        logger.error("Exception occurred, but no user info available.")
+
 # Sanitize filename
 def sanitize_filename(filename):
     """
@@ -40,6 +52,20 @@ def sanitize_filename(filename):
 # Start command
 async def start(update: Update, context: CallbackContext):
     logger.info(f"User {update.message.from_user.id} issued the /start command.")
+
+    user = update.message.from_user
+    track_event(
+        user_id=user.id,
+        event_type="start_command",
+        event_properties={
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "environment": ENVIRONMENT
+        }
+    )
+
     await update.message.reply_text(
         "👋 Welcome! Send me a YouTube link, and I'll fetch the video details and transcripts for you. I can also summarize transcripts so that you can get the gist of the video quickly.\n\n"
     )
@@ -47,6 +73,18 @@ async def start(update: Update, context: CallbackContext):
 # Help command
 async def help_command(update: Update, context: CallbackContext):
     logger.info(f"User {update.message.from_user.id} issued the /help command.")
+    user = update.message.from_user
+    track_event(
+        user_id=user.id,
+        event_type="help_command",
+        event_properties={
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "environment": ENVIRONMENT
+        }
+    )
     await update.message.reply_text(
         "📌 *How to use this bot:*\n\n"
         "1️⃣ Send or share a YouTube video link.\n"
@@ -69,15 +107,42 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
 
     logger.info(f"User {user_id} sent a YouTube link.")
 
-    # Store user details
-    await store_user_async(user_id, username, first_name, last_name, phone_number)
-
     # Extract video ID
     video_url = update.message.text
     video_id = extract_video_id(video_url)
 
+    track_event(
+        user_id=user.id,
+        event_type="handle_youtube_link_start",
+        event_properties={
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "video_url": video_url,
+            "video_id": video_id,
+            "environment": ENVIRONMENT
+        }
+    )
+
+    # Store user details
+    await store_user_async(user_id, username, first_name, last_name, phone_number)
+
     if not video_id:
         logger.warning(f"Invalid YouTube link sent by user {user_id}.")
+        track_event(
+            user_id=user.id,
+            event_type="handle_youtube_link_invalid_link",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_url": video_url,
+                "video_id": video_id,
+                "environment": ENVIRONMENT
+            }
+        )
         await update.message.reply_text("❌ Invalid YouTube link. Please try again.")
         return
 
@@ -85,6 +150,20 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
     # Send the temporary status message and store the message ID
     status_message = await update.message.reply_text("🔍 Retrieving video details...")
     status_message_id = status_message.message_id
+
+    track_event(
+        user_id=user.id,
+        event_type="handle_youtube_link_retrieving_video_details_start",
+        event_properties={
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "video_url": video_url,
+            "video_id": video_id,
+            "environment": ENVIRONMENT
+        }
+    )
 
     # Get video details
     video_details = get_video_details(video_id)
@@ -118,11 +197,38 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         chunk = video_info[i:i + max_length]
         await update.message.reply_text(chunk, parse_mode="HTML")  # Use HTML for bold formatting
 
+    track_event(
+        user_id=user.id,
+        event_type="handle_youtube_link_video_details_sent",
+        event_properties={
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "video_url": video_url,
+            "video_id": video_id,
+            "environment": ENVIRONMENT
+        }
+    )
 
     # await update.message.reply_text("Preparing transcripts...")
     # Send the temporary status message and store the message ID
     status_message = await update.message.reply_text("📚 Preparing transcripts...")
     status_message_id = status_message.message_id
+
+    track_event(
+        user_id=user.id,
+        event_type="handle_youtube_link_preparing_transcripts_start",
+        event_properties={
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "video_url": video_url,
+            "video_id": video_id,
+            "environment": ENVIRONMENT
+        }
+    )
 
     # Include channel name in the file name (truncated to 60 characters)
     channel_name = video_details['snippet']['channelTitle'][:60]
@@ -144,6 +250,22 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         logger.info(f"Found existing transcripts for video {video_id}.")
         logger.info(f"Number of existing transcripts found: {len(transcript_list)}")
         transcripts = transcript_list
+
+        track_event(
+            user_id=user.id,
+            event_type="handle_youtube_link_transcripts_found_in_db",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_url": video_url,
+                "video_id": video_id,
+                "transcript_count": len(transcript_list),
+                "language": normalized_language_code,
+                "environment": ENVIRONMENT
+            }
+        )
     else:
         logger.info(f"No existing transcripts found for video {video_id}. Proceeding to fetch new transcripts.")
         # Get and save transcripts
@@ -179,6 +301,22 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
             transcripts = await save_transcripts(transcript_list, base_filename, transcript_properties=transcript_properties)
             logger.info(f"Transcripts list returned from save_transcripts with length: {len(transcripts)}")
 
+            track_event(
+                user_id=user.id,
+                event_type="handle_youtube_link_transcripts_saved",
+                event_properties={
+                    "username": user.username,
+                    "is_bot": user.is_bot,
+                    "language_code": user.language_code,
+                    "is_premium": user.is_premium,
+                    "video_url": video_url,
+                    "video_id": video_id,
+                    "transcript_count": len(transcripts),
+                    "language": normalized_language_code,
+                    "environment": ENVIRONMENT
+                }
+            )
+
     if transcripts:
         context.user_data['video_id'] = video_id  # Store video_id_id for later use
         context.user_data['transcripts'] = transcripts # Store transcript_request_id for later use
@@ -196,7 +334,24 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
                     file_obj = io.BytesIO(formatted_transcript.encode('utf-8'))
                     file_obj.name = filename  # Telegram uses this as the filename
                     logger.info(f"Sending transcript file: {filename} to user {user_id}.")
-                    await update.message.reply_document(document=InputFile(file_obj), caption=f"{filename}")
+                    msg = await update.message.reply_document(document=InputFile(file_obj), caption=f"{filename}")
+
+                    track_event(
+                        user_id=user.id,
+                        event_type="handle_youtube_link_transcript_sent",
+                        event_properties={
+                            "username": user.username,
+                            "is_bot": user.is_bot,
+                            "language_code": user.language_code,
+                            "is_premium": user.is_premium,
+                            "video_url": video_url,
+                            "video_id": video_id,
+                            "transcript_count": len(list(transcript_list)),
+                            "language": normalized_language_code,
+                            "environment": ENVIRONMENT
+                        }
+                    )
+
                 except Exception as e:
                     logger.error(f"Failed to send transcript for {transcript['language']}: {e}")
             logger.info(f"Transcripts seems to be sent to user {user_id} for video {video_id}.")  
@@ -257,7 +412,22 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         except Exception as e:
             logger.warning(f"Failed to delete the temporary status message: {e}.")
 
-        await update.message.reply_text("❌ No transcripts available. Try again in a few minutes or use a different link. YouTube might be blocking access to this video.")
+        msg = await update.message.reply_text("❌ No transcripts available. Try again in a few minutes or use a different link. YouTube might be blocking access to this video.")
+
+        track_event(
+            user_id=user.id,
+            event_type="handle_youtube_link_transcript_not_available",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_url": video_url,
+                "video_id": video_id,
+                "language": normalized_language_code,
+                "environment": ENVIRONMENT
+            }
+        )
 
     # else:
     #     logger.warning(f"No transcripts retrieved for video {video_id}.")
@@ -276,6 +446,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
+    user = query.from_user
     user_id = query.from_user.id
     logger.info(f"Query data with video_id, language, transcript_request_id: {query.data}")
     video_id, language, transcript_request_id = query.data.split('&')[1:4]
@@ -299,6 +470,20 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         "summary": ""
     }
 
+    track_event(
+        user_id=user.id,
+        event_type="handle_summarization_summary_requested",
+        event_properties={
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "video_id": video_id,
+            "summary_language": language,
+            "environment": ENVIRONMENT
+        }
+    )
+
     if not base_filename:
         logger.error("base_filename not found in user_data.")
         await query.edit_message_text("⚠️ Failed to generate summary. Missing file information.")
@@ -310,11 +495,39 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
 
     if summary:
         logger.info(f"Summary already exists for video {video_id} in language {language} and model {model}.")
+
+        track_event(
+            user_id=user.id,
+            event_type="handle_summarization_existing_summary_found",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_id": video_id,
+                "summary_language": language,
+                "environment": ENVIRONMENT
+            }
+        )
         # Split the summary into chunks of 4096 characters
         max_length = 4096
         for i in range(0, len(summary), max_length):
             chunk = summary[i:i + max_length]
             await query.edit_message_text(chunk, parse_mode="Markdown")
+
+        track_event(
+            user_id=user.id,
+            event_type="handle_summarization_existing_summary_sent",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_id": video_id,
+                "summary_language": language,
+                "environment": ENVIRONMENT
+            }
+        )
         return
     
     elif transcripts:
@@ -339,6 +552,24 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
                     target_language=language,
                     num_key_points=3
                 )  
+
+                track_event(
+                    user_id=user.id,
+                    event_type="handle_summarization_summary_processed_from_user_context",
+                    event_properties={
+                        "username": user.username,
+                        "is_bot": user.is_bot,
+                        "language_code": user.language_code,
+                        "is_premium": user.is_premium,
+                        "video_id": video_id,
+                        "summary_language": language,
+                        "tokens_used": tokens_used,
+                        "estimated_cost": estimated_cost,
+                        "word_count": word_count,
+                        "model": model,
+                        "environment": ENVIRONMENT
+                    }
+                )
             except Exception as e:
                 logger.error(f"Failed to produce summary from data in user context: {e}")
 
@@ -393,6 +624,24 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
                     num_key_points=3
                 )
 
+                track_event(
+                    user_id=user.id,
+                    event_type="handle_summarization_summary_processed_from_file",
+                    event_properties={
+                        "username": user.username,
+                        "is_bot": user.is_bot,
+                        "language_code": user.language_code,
+                        "is_premium": user.is_premium,
+                        "video_id": video_id,
+                        "summary_language": language,
+                        "tokens_used": tokens_used,
+                        "estimated_cost": estimated_cost,
+                        "word_count": word_count,
+                        "model": model,
+                        "environment": ENVIRONMENT
+                    }
+                )
+
             except ValueError as e:
                 logger.error(f"Invalid transcript_request_id: {transcript_request_id}. Error: {e}")
                 await query.edit_message_text("⚠️ Failed to generate summary. Invalid request ID.")
@@ -416,7 +665,22 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
                 status="failed",
                 model=model
             )
-            await query.edit_message_text("⚠️ Failed to generate summary. Please try again later.")
+            msg = await query.edit_message_text("⚠️ Failed to generate summary. Please try again later.")
+
+            track_event(
+                user_id=user.id,
+                event_type="handle_summarization_summary_failed",
+                event_properties={
+                    "username": user.username,
+                    "is_bot": user.is_bot,
+                    "language_code": user.language_code,
+                    "is_premium": user.is_premium,
+                    "video_id": video_id,
+                    "summary_language": language,
+                    "model": model,
+                    "environment": ENVIRONMENT
+                }
+            )
 
     if summary:
         # Format the summary with Markdown
@@ -438,8 +702,42 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
             await query.edit_message_text(chunk, parse_mode="Markdown")
 
         logger.info(f"Summary sent to user {user_id} for video {video_id} in language {language}.")
+
+        track_event(
+            user_id=user.id,
+            event_type="handle_summarization_summary_sent",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_id": video_id,
+                "summary_language": language,
+                "tokens_used": tokens_used,
+                "estimated_cost": estimated_cost,
+                "word_count": word_count,
+                "model": model,
+                "environment": ENVIRONMENT
+            }
+        )
     else:
         logger.error(f"Failed to generate summary for video {video_id} in language {language}.")
+
+        track_event(
+            user_id=user.id,
+            event_type="handle_summarization_failed",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_id": video_id,
+                "summary_language": language,
+                "model": model,
+                "environment": ENVIRONMENT
+            }
+        )
+
         await query.edit_message_text("⚠️ Failed to generate summary. Please try again later.")
         return
 
@@ -455,6 +753,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_youtube_link))
     application.add_handler(CallbackQueryHandler(handle_summarization_button))
+    application.add_error_handler(error_handler)
 
     # Start the bot
     logger.info("Bot is running and polling for updates.")

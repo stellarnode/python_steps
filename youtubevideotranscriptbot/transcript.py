@@ -119,6 +119,16 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
     # By default, I turned off this feature to avoid unnecessary API calls.
     translation_needed = {"en": True, "ru": False}
 
+    logger.info(f"Checking if there is an English version of the transcript already.")
+    try:
+        en_transcript = transcript_list.find_transcript(['en'])
+    except Exception as e:
+        logger.warning(f"English transcript not found or there was an error: {e}")
+        en_transcript = None
+
+    if en_transcript:
+        translation_needed["en"] = False
+
     for transcript in transcript_list:
         language_code = transcript.language_code
         is_generated = transcript.is_generated
