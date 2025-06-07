@@ -13,11 +13,13 @@ def extract_video_id(url):
         r"(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)",              # Shortened links
         r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/live\/([a-zA-Z0-9_-]+)",     # Live stream links
         r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]+)",    # Embedded links
-        r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]+)"         # Deprecated /v/ links
+        r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]+)",
+        r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]+)(?:[?&/]|$)"          # Deprecated /v/ links
     ]
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
+            logger.info(f"Extracted video ID: {match.group(1)} from URL: {url}")
             return match.group(1)
     return None
 
