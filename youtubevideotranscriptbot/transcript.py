@@ -123,7 +123,7 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
     try:
         en_transcript = transcript_list.find_transcript(['en'])
     except Exception as e:
-        logger.warning(f"English transcript not found or there was an error: {e}")
+        logger.warning(f"English transcript not found in transcript list or there was an error: {e}")
         en_transcript = None
 
     if en_transcript:
@@ -157,6 +157,7 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
 
         if not transcript_data and ytt_api_proxied:
             await asyncio.sleep(1.5)
+            logger.info(f"Attempting to fetch with proxy")
             # Retry logic for fetching transcript
             retry_attempts = 3
             for attempt in range(1, retry_attempts + 1):
@@ -221,6 +222,14 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
             logger.error(f"Failed to save the original transcript for {language} to disk: {e}")
 
         try:
+
+            user_language_code = transcript_properties.get('user_language_code', '')
+            logger.info(f"User language code determined as: {user_language_code}")
+            logger.info(f"Transcript normalized language code: {normalized_language_code}")
+
+            if user_language_code == normalized_language_code:
+                translation_needed["en"] = False
+
             # Translate to English if not already in English
             if normalized_language_code != 'en' and translation_needed["en"]:
                 translated_text, tokens_used, estimated_cost, word_count = await translate_text(formatted_transcript, src_lang=normalized_language_code, dest_lang='en')

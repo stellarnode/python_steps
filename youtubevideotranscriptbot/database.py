@@ -38,27 +38,30 @@ def db_cursor():
         conn.close()
 
 # Store user information
-def store_user(user_id, username, first_name, last_name, phone_number=None):
+def store_user(user_id, username, first_name, last_name, phone_number=None, user_language_code=None, is_bot=None, is_premium=None):
     try:
         with db_cursor() as cursor:
             query = """
-            INSERT INTO users (user_id, username, first_name, last_name, phone_number)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO users (user_id, username, first_name, last_name, phone_number, language_code, is_bot, is_premium)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
             username = VALUES(username),
             first_name = VALUES(first_name),
             last_name = VALUES(last_name),
-            phone_number = VALUES(phone_number)
+            phone_number = VALUES(phone_number),
+            language_code = VALUES(language_code),
+            is_bot = VALUES(is_bot),
+            is_premium = VALUES(is_premium)
             """
-            logger.info(f"Executing query: {query} with user_id={user_id}, username={username}, first_name={first_name}, last_name={last_name}, phone_number={phone_number}")
-            cursor.execute(query, (user_id, username, first_name, last_name, phone_number))
+            logger.info(f"Executing query: {query} with user_id={user_id}, username={username}, first_name={first_name}, last_name={last_name}, phone_number={phone_number}, language_code={user_language_code}, is_bot={is_bot}, is_premium={is_premium}")
+            cursor.execute(query, (user_id, username, first_name, last_name, phone_number, user_language_code, is_bot, is_premium))
             logger.info(f"Stored user details for user_id: {user_id}")
     except Exception as e:
         logger.error(f"Failed to store user details: {e}")
 
-async def store_user_async(user_id, username, first_name, last_name, phone_number=None):
+async def store_user_async(user_id, username, first_name, last_name, phone_number=None, user_language_code=None, is_bot=None, is_premium=None):
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, store_user, user_id, username, first_name, last_name, phone_number)
+    await loop.run_in_executor(None, store_user, user_id, username, first_name, last_name, phone_number, user_language_code, is_bot, is_premium)
 
 # Store video information
 def store_video(video_id, video_details, subscribers):

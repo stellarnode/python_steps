@@ -12,6 +12,7 @@ from transcript import get_all_transcripts, save_transcripts, normalize_language
 from summarize import handle_summarization_request
 from duration import format_duration
 from analytics import track_event
+from utils import sanitize_filename
 import openai
 import aiofiles
 import io
@@ -39,15 +40,6 @@ async def error_handler(update, context):
         logger.error(f"User {user_id} may have blocked the bot.")
     else:
         logger.error("Exception occurred, but no user info available.")
-
-# Sanitize filename
-def sanitize_filename(filename):
-    """
-    Sanitize the filename by replacing invalid characters with underscores.
-    """
-    sanitized = re.sub(r'[\\/*?:"<>| ]', '_', filename)
-    sanitized = sanitized.strip('_')
-    return sanitized
 
 # Start command
 async def start(update: Update, context: CallbackContext):
@@ -103,6 +95,9 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
     username = user.username
     first_name = user.first_name
     last_name = user.last_name
+    is_bot = user.is_bot
+    is_premium = user.is_premium
+    user_language_code = user.language_code
     phone_number = None  # Telegram does not provide phone number directly
 
     logger.info(f"User {user_id} sent a YouTube link.")
@@ -126,7 +121,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
     )
 
     # Store user details
-    await store_user_async(user_id, username, first_name, last_name, phone_number)
+    await store_user_async(user_id, username, first_name, last_name, phone_number, user_language_code, is_bot, is_premium)
 
     if not video_id:
         logger.warning(f"Invalid YouTube link sent by user {user_id}.")
@@ -293,7 +288,8 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
                 'word_count': 0,
                 'tokens_used': 0,
                 'estimated_cost': 0.0,
-                'model': MODEL_TO_USE
+                'model': MODEL_TO_USE,
+                'user_language_code': user_language_code
             }
 
             logger.info(f"Initial transcript properties: {transcript_properties}")
@@ -301,21 +297,22 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
             transcripts = await save_transcripts(transcript_list, base_filename, transcript_properties=transcript_properties)
             logger.info(f"Transcripts list returned from save_transcripts with length: {len(transcripts)}")
 
-            track_event(
-                user_id=user.id,
-                event_type="handle_youtube_link_transcripts_saved",
-                event_properties={
-                    "username": user.username,
-                    "is_bot": user.is_bot,
-                    "language_code": user.language_code,
-                    "is_premium": user.is_premium,
-                    "video_url": video_url,
-                    "video_id": video_id,
-                    "transcript_count": len(transcripts),
-                    "language": normalized_language_code,
-                    "environment": ENVIRONMENT
-                }
-            )
+            if transcripts:
+                track_event(
+                    user_id=user.id,
+                    event_type="handle_youtube_link_transcripts_saved",
+                    event_properties={
+                        "username": user.username,
+                        "is_bot": user.is_bot,
+                        "language_code": user.language_code,
+                        "is_premium": user.is_premium,
+                        "video_url": video_url,
+                        "video_id": video_id,
+                        "transcript_count": len(transcripts),
+                        "language": normalized_language_code,
+                        "environment": ENVIRONMENT
+                    }
+                )
 
     if transcripts:
         context.user_data['video_id'] = video_id  # Store video_id_id for later use

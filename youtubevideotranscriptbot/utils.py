@@ -5,6 +5,7 @@ from config import MODEL_TO_USE
 import tiktoken
 import math
 import asyncio
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -31,3 +32,11 @@ def get_token_count(text, model="gpt-3.5-turbo"):
             logger.error(f"Token count fallback failed for default gpt-3.5-turbo reference: {e}")
         raise
 
+# Sanitize filename
+def sanitize_filename(filename):
+    """
+    Sanitize the filename by replacing invalid characters with underscores.
+    """
+    sanitized = re.sub(r'[\\/*?:"<>| ]', '_', filename)
+    sanitized = sanitized.strip('_')
+    return sanitized
