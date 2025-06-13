@@ -8,7 +8,7 @@ from telegram.error import TelegramError
 from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE, ENVIRONMENT, AMPLITUDE_API_KEY
 from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async, get_summary_by_video_language_async, get_existing_transcripts_async, insert_transcript_async
 from youtube_api import extract_video_id, get_video_details, get_channel_subscribers
-from transcript import get_all_transcripts, save_transcripts, normalize_language_code
+from transcript import get_all_transcripts, save_transcripts, normalize_language_code, test_proxy
 from summarize import handle_summarization_request
 from duration import format_duration
 from analytics import track_event
@@ -37,9 +37,21 @@ async def error_handler(update, context):
     logger.error(f"Exception while handling an update: {context.error}")
     if update and update.effective_user:
         user_id = update.effective_user.id
-        logger.error(f"User {user_id} may have blocked the bot.")
+        logger.error(f"User {user_id} may have not received the message. User might have blocked the bot.")
     else:
         logger.error("Exception occurred, but no user info available.")
+
+
+async def proxy_command(update: Update, context: CallbackContext):
+    logger.info(f"User {update.message.from_user.id} issued the /proxy command.")
+    proxy = test_proxy()
+
+    if not proxy:
+        logger.error("Proxy test failed. No proxy available.")
+        proxy = "❌ Undefined. Proxy test might have failed."
+
+    await update.message.reply_text(f"The proxy test returned server IP as: {proxy}.")
+
 
 # Start command
 async def start(update: Update, context: CallbackContext):
@@ -748,6 +760,7 @@ def main():
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("proxy", proxy_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_youtube_link))
     application.add_handler(CallbackQueryHandler(handle_summarization_button))
     application.add_error_handler(error_handler)

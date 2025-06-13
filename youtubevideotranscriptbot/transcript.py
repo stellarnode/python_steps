@@ -15,6 +15,7 @@ from database import store_transcript_request_async, insert_transcript_async
 import aiofiles
 import asyncio
 import requests
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,9 @@ def test_proxy():
     try:
         response = requests.get("https://httpbin.org/ip", proxies=proxy_dict, timeout=10)
         logger.info(f"Proxy working! Your IP: {response.json()}")
+        return response.json()
     except Exception as e:
         logger.info(f"Proxy failed: {e}")
-
-    return
 
 
 # Get all available transcripts
@@ -62,7 +62,7 @@ def get_all_transcripts(video_id):
             )
         )
  
-    logger.info(f"Using default YouTubeTranscriptApi without proxy.")
+    logger.info(f"[Get Transcript List] Using default YouTubeTranscriptApi without proxy.")
     ytt_api = YouTubeTranscriptApi()
 
     try:
@@ -78,7 +78,7 @@ def get_all_transcripts(video_id):
 
     if not transcript_list and ytt_api_proxied:
         try:
-            logger.info(f"Attempting to fetch transcripts with proxy configuration.")
+            logger.info(f"[Get Transcript List] Attempting to fetch transcripts with proxy configuration.")
             transcript_list = ytt_api_proxied.list(video_id)
             # logger.info(f"Available methods for TranscriptList: {dir(transcript_list)}")
             # print("Available transcripts:\n")
@@ -145,11 +145,19 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
     #     language = transcript.language
     #     is_generated = transcript.is_generated
 
+        original_audio_language = transcript_properties.get('normalized_language_code', '')
+        transcript_data = None
+
+        # if original_audio_language != normalized_language_code or normalized_language_code != 'en':
+        #     logger.info(f"Transcript retrieval for language {normalized_language_code} skipped since nor original audio or 'en'. Original audio is: {original_audio_language}.")
+        #     continue
+
         logger.info(f"Fetching transcript for language: {language} ({normalized_language_code})")
-        logger.info(f"Attempting to fetch without proxy")
+        logger.info(f"[Get Single Transcript] Attempting to fetch with(out) proxy")
         
         try:
-            transcript_data = ytt_api.fetch(transcript_properties.get('video_id'), languages=[language_code])
+            # transcript_data = transcript.fetch()
+            transcript_data = ytt_api_proxied.fetch(transcript_properties.get('video_id'), languages=[language_code])
             logger.info(f"Transcript data from fetch attempt: {str(transcript_data)[:500]}")
         except Exception as e:
             logger.warning(f"Fetch without proxy failed for {language}: {e}")
@@ -157,7 +165,7 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
 
         if not transcript_data and ytt_api_proxied:
             await asyncio.sleep(1.5)
-            logger.info(f"Attempting to fetch with proxy")
+            logger.info(f"[Get Single Transcript] Attempting to fetch with proxy")
             # Retry logic for fetching transcript
             retry_attempts = 3
             for attempt in range(1, retry_attempts + 1):
@@ -167,6 +175,9 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
                     break
                 except Exception as e:
                     logger.warning(f"Fetch failed for {language} (attempt {attempt}): {e}")
+                    # logger.warning("Proxy failed error type:", type(e).__name__)
+                    # logger.warning("Full traceback:\n")
+                    # logger.warning(traceback.print_exc())
                     if attempt < retry_attempts:
                         await asyncio.sleep(2)
                     else:

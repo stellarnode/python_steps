@@ -3,9 +3,11 @@ import openai
 import logging
 from config import OPENAI_API_KEY
 from config import DEEPSEEK_API_KEY
+from config import DEEPSEEK_R1_API_KEY
 from config import XAI_API_KEY
 from config import ANTHROPIC_API_KEY
-from config import MODEL_TO_USE  # Import the model selection
+from config import MODEL_TO_USE
+from config import LLAMA_API_KEY
 
 
 # Set up OpenAI
@@ -47,6 +49,18 @@ def get_model_params(model=MODEL_TO_USE):
             "cost_per_100k_tokens_input": 0.027,
             "cost_per_100k_tokens_output": 0.11
         }
+    elif "r1" in model.lower():
+        logger.info(f"Using DeepSeek {model}.")
+        # This is the R1 model, which is free to use through OpenRouter
+        return {
+            "tokens_per_chunk": 150000,
+            "max_chunks_allowed": 5,
+            "max_tokens": 1024,
+            "model": model or "deepseek-chat",
+            "client": openai.OpenAI(api_key=DEEPSEEK_R1_API_KEY, base_url="https://openrouter.ai/api/v1"),
+            "cost_per_100k_tokens_input": 0.0,
+            "cost_per_100k_tokens_output": 0.0
+        }
     elif "grok" in model.lower():
         logger.info(f"Using xAI Grok {model}.")
         return {
@@ -69,6 +83,30 @@ def get_model_params(model=MODEL_TO_USE):
             "cost_per_100k_tokens_input": 0.25,
             "cost_per_100k_tokens_output": 1.5
         } 
+    elif "llama" in model.lower():
+        logger.info(f"Using Meta Llama {model}.")
+        # This is a free model, through OpenRouter
+        return {
+            "tokens_per_chunk": 110000,
+            "max_chunks_allowed": 5,
+            "max_tokens": 1024,
+            "model": model or "meta-llama/llama-3.3-8b-instruct:free",
+            "client": openai.OpenAI(api_key=LLAMA_API_KEY, base_url="https://openrouter.ai/api/v1"),
+            "cost_per_100k_tokens_input": 0.0,
+            "cost_per_100k_tokens_output": 0.0
+        }
+    elif "gemini" in model.lower():
+        logger.info(f"Using Meta Llama {model}.")
+        # This is a free model, through OpenRouter
+        return {
+            "tokens_per_chunk": 900000,
+            "max_chunks_allowed": 5,
+            "max_tokens": 1024,
+            "model": model or "google/gemini-2.0-flash-exp:free",
+            "client": openai.OpenAI(api_key=DEEPSEEK_R1_API_KEY, base_url="https://openrouter.ai/api/v1"),
+            "cost_per_100k_tokens_input": 0.0,
+            "cost_per_100k_tokens_output": 0.0
+        }
     else:
         logger.error("Invalid model selection in config. Please select 'gpt' for OpenAI or 'deepseek' for DeepSeek.")
         logger.warning("Falling back to DeepSeek model as default.")
