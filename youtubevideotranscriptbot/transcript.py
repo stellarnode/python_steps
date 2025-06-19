@@ -7,7 +7,8 @@ from youtube_transcript_api.formatters import TextFormatter
 import os
 import logging
 from translate import translate_text  
-from config import MODEL_TO_USE 
+from config import MODEL_TO_USE, SUPADATA_API_KEY
+from supadata import Supadata, SupadataError
 from config import PROXY_USERNAME
 from config import PROXY_PASSWORD
 from model_params import get_model_params
@@ -153,11 +154,11 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
         #     continue
 
         logger.info(f"Fetching transcript for language: {language} ({normalized_language_code})")
-        logger.info(f"[Get Single Transcript] Attempting to fetch with(out) proxy")
+        logger.info(f"[Get Single Transcript] Attempting to fetch without proxy")
         
         try:
             # transcript_data = transcript.fetch()
-            transcript_data = ytt_api_proxied.fetch(transcript_properties.get('video_id'), languages=[language_code])
+            transcript_data = ytt_api.fetch(transcript_properties.get('video_id'), languages=[language_code])
             logger.info(f"Transcript data from fetch attempt: {str(transcript_data)[:500]}")
         except Exception as e:
             logger.warning(f"Fetch without proxy failed for {language}: {e}")
@@ -185,7 +186,23 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
                         transcript_data = None
 
         if not transcript_data:
-            continue
+            logger.error(f"Failed to fetch transcript for {language} with proxy after all attempts.")
+            logger.info(f"[Supadata] Trying to fetch the transcript with Supadata for {language}.")
+
+            try:
+                # Initialize the client
+                supadata = Supadata(api_key=SUPADATA_API_KEY)
+                # Get YouTube transcript with Spanish language preference
+                transcript_data = supadata.youtube.transcript(video_id=transcript_properties.get('video_id'), lang=language_code)
+                if transcript_data:
+                    logger.info(f"[Supadata] Got transcript for {language_code} from Supadata: {str(transcript_data)[:500]}")
+                    transcript_data = transcript_data.content
+                else:
+                    logger.error(f"[Supadata] No transcript data found for {language_code}.")
+                    continue
+            except SupadataError as e:
+                logger.error(f"[Supadata] Failed to fetch transcript from Supadata for {language_code}: {e}")
+                continue
 
         try:
             formatted_transcript = formatter.format_transcript(transcript_data)

@@ -14,6 +14,8 @@ fi
 # Build the Docker image
 echo "Building the Docker image..."
 docker build -t ${IMAGE_TAG} .
+# Use the line below if you want to build without cache
+# docker build --no-cache -t ${IMAGE_TAG} .
 
 # Run the container with the volume and auto-restart
 echo "Starting the container..."
