@@ -174,22 +174,26 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
 
     # Get video details
     video_details = get_video_details(video_id)
-    channel_id = video_details['snippet']['channelId']
+    channel_id = video_details.get('snippet', {}).get('channelId')
     subscribers = get_channel_subscribers(channel_id)  # Get number of subscribers
     await store_video_async(video_id, video_details, subscribers)  # Store video details
     transcript_request_id = await store_transcript_request_async(user_id, video_id)  # Store transcript request and get request_id
 
+    snippet = video_details.get('snippet', {})
+    statistics = video_details.get('statistics', {})
+    content_details = video_details.get('contentDetails', {})
+
     # Prepare video details message with improved formatting
     logger.info(f"Here are video details: {video_details}.")
     video_info = (
-        f"<b>📺 Title</b>: {video_details['snippet']['title']}\n\n"
-        f"<b>🎙️ Channel</b>: {video_details['snippet']['channelTitle']}\n\n"
+        f"<b>📺 Title</b>: {snippet.get('title', 'N/A')}\n\n"
+        f"<b>🎙️ Channel</b>: {snippet.get('channelTitle', 'N/A')}\n\n"
         f"<b>👥 Subscribers</b>: {int(subscribers):,}\n\n"
-        f"<b>👁️ Views</b>: {int(video_details['statistics']['viewCount']):,}\n\n"
-        f"<b>👍 Likes</b>: {int(video_details['statistics']['likeCount']):,}\n\n"
-        f"<b>💬 Comments</b>: {int(video_details['statistics']['commentCount']):,}\n\n"
-        f"<b>⏱️ Duration</b>: {format_duration(video_details['contentDetails']['duration'])}\n\n"  # Add duration
-        f"<b>📝 Description</b>: {video_details['snippet']['description']}"
+        f"<b>👁️ Views</b>: {int(statistics.get('viewCount', 0)):,}\n\n"
+        f"<b>👍 Likes</b>: {int(statistics.get('likeCount', 0)):,}\n\n"
+        f"<b>💬 Comments</b>: {int(statistics.get('commentCount', 0)):,}\n\n"
+        f"<b>⏱️ Duration</b>: {format_duration(content_details.get('duration', 'PT0S'))}\n\n"  # Add duration
+        f"<b>📝 Description</b>: {snippet.get('description', 'N/A')}"
     )
 
     # Delete the temporary status message
