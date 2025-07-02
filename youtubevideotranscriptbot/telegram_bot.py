@@ -337,6 +337,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         try:
             for transcript in transcripts:
                 try:
+                    logger.info(f"Type of transcript object: {type(transcript)}")
                     formatted_transcript = transcript.get('text')
                     filename = transcript.get('filename')
                     if not filename:
@@ -394,12 +395,19 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
 
         # Show summarization buttons
         try:
-            original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
+            logger.info(f"Video snippet object at this point: {snippet}")
+            original_language = snippet.get("defaultAudioLanguage")
             if original_language:
-                logger.info(f"Original language determined as: {original_language}")
-        except:
-            original_language = next(iter(transcript_list)).language_code  # Get the language code of the first transcript
-            logger.warning(f"Original language could not be determined. Falling back to first random: {original_language}")
+                logger.info(f"Original audio language determined as: {original_language}")
+                original_language = normalize_language_code(original_language)
+            else:
+                original_language = snippet.get("defaultLanguage")
+                original_language = normalize_language_code(original_language)  # Get the language code of the first transcript
+                logger.warning(f"Original video language determined as: {original_language}")
+        except Exception as e:
+            original_language = next(iter(transcript_list)).get('language_code', 'en') 
+            logger.error(f"Error determining the original language: {e}") # Get the language code of the first transcript
+            logger.warning(f"Original language could not be determined. Falling back to first random or English: {original_language}")
 
         try:
             original_language = normalize_language_code(original_language)
