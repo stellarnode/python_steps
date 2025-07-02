@@ -14,20 +14,20 @@ logger = logging.getLogger(__name__)
 model_to_use = 3 # 1 for OpenAI, 2 for DeepSeek
 
 if model_to_use == 1:
-    max_tokens = 250
+    max_tokens = 512
     temperature = 0.7
     model = "gpt-4"
     client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
     logger.info(f"Using OpenAI {model} model.")
 elif model_to_use == 2:
-    max_tokens = 250
+    max_tokens = 512
     temperature = 0.9
     model = "deepseek-chat"
     # for DeepSeek backward compatibility, you can still use `https://api.deepseek.com/v1` as `base_url`.
     client = openai.OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
     logger.info(f"Using DeepSeek {model} model.")
 elif model_to_use == 3:
-    max_tokens = 250
+    max_tokens = 512
     temperature = 0.7
     model = "grok-3-beta"
     client = openai.OpenAI(api_key=GROK_API_KEY, base_url="https://api.x.ai/v1")
