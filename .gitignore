@@ -23,6 +23,9 @@ python-trading/.ipynb_checkpoints/
 *.log
 
 *config*
+.env
+.env*
+*secret*
 
 python_fundamentals/prank/
 
