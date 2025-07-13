@@ -130,6 +130,8 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
     if en_transcript:
         translation_needed["en"] = False
 
+    original_audio_language = transcript_properties.get('normalized_language_code', '')
+
     for transcript in transcript_list:
         language_code = transcript.language_code
         is_generated = transcript.is_generated
@@ -146,7 +148,14 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
     #     language = transcript.language
     #     is_generated = transcript.is_generated
 
-        original_audio_language = transcript_properties.get('normalized_language_code', '')
+        if original_audio_language and normalized_language_code != original_audio_language and not is_generated:
+            logger.info(f"Transcript retrieval for language {language_code} ({normalized_language_code}) skipped since not original audio. Original audio is believed to be: {original_audio_language}.")
+            continue
+
+        if normalized_language_code != 'en' and normalized_language_code != 'ru':
+            logger.info(f"Transcript retrieval for language {language_code} ({normalized_language_code}) skipped since nor 'en' or 'ru'. Original audio is believed to be: {original_audio_language}.")
+            continue
+
         transcript_data = None
 
         # if original_audio_language != normalized_language_code or normalized_language_code != 'en':
@@ -218,6 +227,7 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
                 "filename": f"{base_filename}_transcript_{normalized_language_code}.txt"
             }
             else:
+                transcript_properties = transcript_properties.copy()
                 transcript_properties.update({
                     "language_code": language_code,
                     "normalized_language_code": normalized_language_code,
@@ -258,6 +268,7 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
             if user_language_code == normalized_language_code:
                 translation_needed["en"] = False
 
+            logger.info(f"Translation needed for English: {translation_needed.get('en')}, Russian: {translation_needed.get('ru')}")     
             # Translate to English if not already in English
             if normalized_language_code != 'en' and translation_needed["en"]:
                 translated_text, tokens_used, estimated_cost, word_count = await translate_text(formatted_transcript, src_lang=normalized_language_code, dest_lang='en')
