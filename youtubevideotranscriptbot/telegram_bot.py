@@ -172,6 +172,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         }
     )
 
+    transcripts = []
     # Get video details
     video_details = get_video_details(video_id)
     channel_id = video_details.get('snippet', {}).get('channelId')
@@ -405,10 +406,10 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
                 original_language = normalize_language_code(original_language)  # Get the language code of the first transcript
                 logger.warning(f"Original video language determined as: {original_language}")
         except Exception as e:
-            original_language = next(iter(transcript_list)).get('language_code', 'en') 
             logger.error(f"Error determining the original language: {e}") # Get the language code of the first transcript
             logger.warning(f"Original language could not be determined. Falling back to first random or English: {original_language}")
-
+            original_language = next(iter(transcripts)).get('language_code', 'en') 
+            logger.info(f"Original language determined as: {original_language}")
         try:
             original_language = normalize_language_code(original_language)
         except:
@@ -423,6 +424,20 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         keyboard.append([InlineKeyboardButton("Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("🔮 Would you like a summary?", reply_markup=reply_markup)
+
+        track_event(
+            user_id=user.id,
+            event_type="handle_youtube_link_summarization_buttons_displayed",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_url": video_url,
+                "video_id": video_id,
+                "environment": ENVIRONMENT
+            }
+        )
     
     else:
         logger.warning(f"No transcripts retrieved for video {video_id}.")
