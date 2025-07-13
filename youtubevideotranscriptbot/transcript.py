@@ -152,7 +152,7 @@ async def save_transcripts(transcript_list, base_filename, transcript_properties
             logger.info(f"Transcript retrieval for language {language_code} ({normalized_language_code}) skipped since not original audio. Original audio is believed to be: {original_audio_language}.")
             continue
 
-        if normalized_language_code != 'en' and normalized_language_code != 'ru':
+        if normalized_language_code != 'en' and normalized_language_code != 'ru' and not is_generated:
             logger.info(f"Transcript retrieval for language {language_code} ({normalized_language_code}) skipped since nor 'en' or 'ru'. Original audio is believed to be: {original_audio_language}.")
             continue
 
