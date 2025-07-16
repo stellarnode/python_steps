@@ -333,7 +333,19 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
 
     if transcripts:
         context.user_data['video_id'] = video_id  # Store video_id_id for later use
-        context.user_data['transcripts'] = transcripts # Store transcript_request_id for later use
+
+        transcripts_in_context = []
+        transcripts_in_context = context.user_data.get('transcripts', [])
+        logger.info(f"Current transcripts in user context: {len(transcripts_in_context)}")
+
+        if transcripts_in_context and len(transcripts_in_context) > 0 and len(transcripts_in_context) < 10:
+            logger.info(f"Appending new transcripts to user context. Current count: {len(transcripts_in_context)}")
+            transcripts_in_context.extend(transcripts)
+            logger.info(f"New transcripts count in user context: {len(transcripts_in_context)}")  # Extend the existing list with new transcripts
+            context.user_data['transcripts'] = transcripts_in_context
+        else:
+            logger.info(f"Clearing transcripts in user context and storing from scratch. New count: {len(transcripts)}")
+            context.user_data['transcripts'] = transcripts # Store transcript_request_id for later use
 
         try:
             for transcript in transcripts:
@@ -488,8 +500,30 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
     video_id, language, transcript_request_id = query.data.split('&')[1:4]
     logger.info(f"The following language selected for summary: {language}")
     
-    base_filename = context.user_data.get('base_filename')
-    transcripts = context.user_data.get('transcripts')
+    # base_filename = context.user_data.get('base_filename')
+    base_filename = 'unknown'
+    transcripts = context.user_data.get('transcripts', [])
+
+
+    logger.info(f"Summary requested for video id: {video_id}.")
+    logger.info(f"Total number of transcripts found in user context: {len(transcripts)}")
+
+    if transcripts and len(transcripts) > 0:
+        logger.info(f"The first available trascript video id: {transcripts[0].get('video_id', 'unknown')} and filename {transcripts[0].get('filename', 'unknown')}")
+
+    transcript = None
+
+    for t in transcripts:
+        if t.get('video_id') == video_id and t.get('type') == 'transcript':
+            logger.info(f"Found matching transcript for video {video_id} in user context.")
+            transcript = t
+            base_filename = t.get('base_filename')
+            break
+    
+    if not transcript:
+        logger.info(f"No matching transcript found for video {video_id} in user context.")
+        transcripts = None
+
 
     model = MODEL_TO_USE  # Use the model specified in the config
 
@@ -520,17 +554,17 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         }
     )
 
-    if not base_filename:
-        logger.error("base_filename not found in user_data.")
-        await query.edit_message_text("⚠️ Failed to generate summary. Missing file information.")
-        return
+    # if not base_filename:
+    #     logger.error("base_filename not found in user_data.")
+    #     await query.edit_message_text("⚠️ Failed to generate summary. Missing file information.")
+    #     return
 
     await query.edit_message_text("🧠 Working on summary...")
 
     summary = await get_summary_by_video_language_async(video_id=video_id, language=language, model=model)
 
     if summary:
-        logger.info(f"Summary already exists for video {video_id} in language {language} and model {model}.")
+        logger.info(f"Summary already exists in DB for video {video_id} in language {language} and model {model}.")
 
         track_event(
             user_id=user.id,
@@ -567,15 +601,14 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         return
     
     elif transcripts:
-        logger.info(f"No existing summary found for video {video_id} in language {language} and model {model}. Proceeding to generate a new summary.")
-        logger.info(f"Proceeding with transcript from user context: {transcripts[0].get('filename', 'unknown')}")
-
-        transcript = transcripts[0]
+        logger.info(f"No existing summary found in DB for video {video_id} in language {language} and model {model}. Proceeding to generate a new summary.")
+        
 
         if transcript:
+            logger.info(f"Proceeding with summary for transcript from user context with video id: {transcript.get('video_id')}.")
             original_language = transcript.get('normalized_language_code', 'en')
             text = transcript.get('text')
-            logger.info(f"Transcript found in user contextfor original language: {original_language}")
+            logger.info(f"Transcript found in user context for original language: {original_language}")
             # Handle summarization request
             logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
             logger.info(f"Text length to summarize is {len(text.split())} words.")
@@ -609,8 +642,11 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
             except Exception as e:
                 logger.error(f"Failed to produce summary from data in user context: {e}")
 
+        else:
+            logger.error(f"No transcript found in user context for video {video_id}. Failed to generate summary.")
+
     else:
-        logger.info(f"No transcripts found in user context. Proceeding to read from file.")
+        logger.info(f"No transcripts found in user context for {video_id}. Proceeding to read from file on disk.")
 
         try:
             # Ensure transcript_request_id is an integer
@@ -620,8 +656,18 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
             transcript_folder = "transcripts"
             
             try:
+
+                logger.info("Fetching video details to get the base_filename and determine original language.")
                 # Get video details
                 video_details = get_video_details(video_id)
+                # Include channel name in the file name (truncated to 60 characters)
+                channel_name = video_details['snippet']['channelTitle'][:60]
+                # Include video title in the file name (truncated to 140 characters)
+                video_title = video_details['snippet']['title'][:140]
+                # Sanitize the base filename
+                base_filename = sanitize_filename(f"{channel_name}_{video_title}")
+
+
                 original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
                 if original_language:
                     summary_properties['language'] = original_language
@@ -640,16 +686,16 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
             transcript_filename = f"{transcript_folder}/{base_filename}_transcript_{original_language}.txt"
 
             # If no transcript found in user context, read from file
-            logger.info(f"Looking for transcript file: {transcript_filename}")
+            logger.info(f"Looking for transcript file on disk: {transcript_filename}")
             if not os.path.exists(transcript_filename):
-                logger.error(f"Transcript file not found: {transcript_filename}")
-                raise FileNotFoundError(f"Transcript file not found: {transcript_filename}")
+                logger.error(f"Transcript file not found on disk: {transcript_filename}")
+                raise FileNotFoundError(f"Transcript file not found on disk: {transcript_filename}")
 
             with open(transcript_filename, 'r', encoding='utf-8') as f:
                 transcript = f.read()
 
             # Handle summarization request
-            logger.info(f"Starting summarization request from original '{original_language}' to target '{language}'")
+            logger.info(f"Starting summarization request with file on disk from original '{original_language}' to target '{language}'")
             try:
                 summary, tokens_used, estimated_cost, word_count, model = await handle_summarization_request(
                     text=transcript,
@@ -680,7 +726,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
 
             except ValueError as e:
                 logger.error(f"Invalid transcript_request_id: {transcript_request_id}. Error: {e}")
-                await query.edit_message_text("⚠️ Failed to generate summary. Invalid request ID.")
+                await query.edit_message_text("⚠️ Failed to generate summary. Please try again.")
             except FileNotFoundError as e:
                 logger.error(f"Transcript file not found: {e}")
                 await query.edit_message_text("⚠️ Failed to generate summary. Transcript file not found.")
@@ -774,7 +820,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
             }
         )
 
-        await query.edit_message_text("⚠️ Failed to generate summary. Please try again later.")
+        msg = await query.edit_message_text("⚠️ Failed to generate summary. Please try again later.")
         return
 
 
