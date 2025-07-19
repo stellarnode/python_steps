@@ -13,17 +13,13 @@ from config import PROXY_USERNAME
 from config import PROXY_PASSWORD
 from model_params import get_model_params
 from database import store_transcript_request_async, insert_transcript_async
+from utils import normalize_language_code
 import aiofiles
 import asyncio
 import requests
 import traceback
 
 logger = logging.getLogger(__name__)
-
-# Normalize language codes (e.g., "en-US" -> "en")
-def normalize_language_code(language_code):
-    # Split on hyphen and take the first part
-    return language_code.split('-')[0]
 
 def test_proxy():
     # Test the proxy directly

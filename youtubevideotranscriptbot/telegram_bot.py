@@ -5,14 +5,15 @@ import logging
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 from telegram.error import TelegramError
-from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE, ENVIRONMENT, AMPLITUDE_API_KEY
+from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE, ENVIRONMENT, AMPLITUDE_API_KEY, MAX_TRANSCRIPTS_IN_USER_CONTEXT
 from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async, get_summary_by_video_language_async, get_existing_transcripts_async, insert_transcript_async
 from youtube_api import extract_video_id, get_video_details, get_channel_subscribers
-from transcript import get_all_transcripts, save_transcripts, normalize_language_code, test_proxy
+from transcript import get_all_transcripts, save_transcripts, test_proxy
 from summarize import handle_summarization_request
 from duration import format_duration
 from analytics import track_event
-from utils import sanitize_filename
+from utils import sanitize_filename, get_original_language, normalize_language_code
+from languages import languages
 import openai
 import aiofiles
 import io
@@ -256,7 +257,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
 
     logger.info(f"Using language code: {language_code} to find potentially existing transcripts.")
     
-    transcript_list = await get_existing_transcripts_async(video_id, normalized_language_code)
+    transcript_list = await get_existing_transcripts_async(video_id)
  
     if transcript_list:
         logger.info(f"Found existing transcripts for video {video_id}.")
@@ -338,7 +339,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         transcripts_in_context = context.user_data.get('transcripts', [])
         logger.info(f"Current transcripts in user context: {len(transcripts_in_context)}")
 
-        if transcripts_in_context and len(transcripts_in_context) > 0 and len(transcripts_in_context) < 10:
+        if transcripts_in_context and len(transcripts_in_context) > 0 and len(transcripts_in_context) < MAX_TRANSCRIPTS_IN_USER_CONTEXT:
             logger.info(f"Appending new transcripts to user context. Current count: {len(transcripts_in_context)}")
             transcripts_in_context.extend(transcripts)
             logger.info(f"New transcripts count in user context: {len(transcripts_in_context)}")  # Extend the existing list with new transcripts
@@ -347,15 +348,24 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
             logger.info(f"Clearing transcripts in user context and storing from scratch. New count: {len(transcripts)}")
             context.user_data['transcripts'] = transcripts # Store transcript_request_id for later use
 
+        original_language = get_original_language(snippet, transcripts)
+        logger.info(f"Original language determined as: {original_language}")
+
         try:
             for transcript in transcripts:
                 try:
                     logger.info(f"Type of transcript object: {type(transcript)}")
+                    language_code = transcript.get('normalized_language_code')
+
+                    if not language_code in [original_language, 'en', 'ru']:
+                        logger.info(f"Skipping sending transcript for language: {language_code}")
+                        continue
+
                     formatted_transcript = transcript.get('text')
                     filename = transcript.get('filename')
                     if not filename:
                         filename = f"{base_filename}_{transcript.get('normalized_language_code')}.txt"
-                    language_code = transcript.get('normalized_language_code')
+                    
                     logger.info(f"Sending transcript for language: {language_code}")
                     # Use BytesIO for binary mode (recommended for Telegram)
                     file_obj = io.BytesIO(formatted_transcript.encode('utf-8'))
@@ -407,33 +417,51 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
             logger.warning(f"Failed to delete the temporary status message: {e}.")
 
         # Show summarization buttons
-        try:
-            logger.info(f"Video snippet object at this point: {snippet}")
-            original_language = snippet.get("defaultAudioLanguage")
-            if original_language:
-                logger.info(f"Original audio language determined as: {original_language}")
-                original_language = normalize_language_code(original_language)
-            else:
-                original_language = snippet.get("defaultLanguage")
-                original_language = normalize_language_code(original_language)  # Get the language code of the first transcript
-                logger.warning(f"Original video language determined as: {original_language}")
-        except Exception as e:
-            logger.error(f"Error determining the original language: {e}") # Get the language code of the first transcript
-            logger.warning(f"Original language could not be determined. Falling back to first random or English: {original_language}")
-            original_language = next(iter(transcripts)).get('language_code', 'en') 
-            logger.info(f"Original language determined as: {original_language}")
-        try:
-            original_language = normalize_language_code(original_language)
-        except:
-            pass
+        if not original_language:
+            original_language = get_original_language(snippet, transcripts)
+
+        # try:
+        #     logger.info(f"Video snippet object at this point: {snippet}")
+        #     logger.info("Attempting to determine the original language of the video.")
+        #     original_language = snippet.get("defaultAudioLanguage")
+        #     if original_language:
+        #         logger.info(f"Original audio language determined as: {original_language}")
+        #         original_language = normalize_language_code(original_language)
+        #     else:
+        #         original_language = snippet.get("defaultLanguage")
+        #         if original_language:
+        #             original_language = normalize_language_code(original_language)
+        #             logger.warning(f"Original video language determined as: {original_language}")
+        #         elif transcripts:
+        #             # Find first object with name='Alice'
+        #             t = next((t for t in transcripts if t.get('is_generated') == True and t.get('type') == 'transcript'), None)
+        #             original_language = t.get('normalized_language_code') if t else None
+        #             if original_language:
+        #                 logger.warning(f"Original video language determined as: {original_language}")
+        #                 original_language = normalize_language_code(original_language)
+        #             else:
+        #                 raise ValueError("No auto-generated transcript found to determine the original language.")
+        #         else:
+        #             raise ValueError("No language code found in video details snippet.")
+        # except Exception as e:
+        #     logger.error(f"Error determining the original language: {e}") # Get the language code of the first transcript
+        #     logger.warning(f"Original language could not be determined. Falling back to first random or English: {original_language}")
+        #     original_language = next(iter(transcripts)).get('language_code', 'en') 
+        #     logger.info(f"Original language determined as: {original_language}")
+        # try:
+        #     original_language = normalize_language_code(original_language)
+        # except:
+        #     pass
         
         logger.info(f"Using the following transcript_request_id to find transcript: {transcript_request_id}")
 
+        original_language_name = languages.get(original_language, {}).get('name', 'original language')
+
         keyboard = []
         if original_language not in ['en', 'ru']:
-            keyboard.append([InlineKeyboardButton("Summarize in original language", callback_data=f"sum&{video_id}&orig&{transcript_request_id}")])
-        keyboard.append([InlineKeyboardButton("Summarize in English", callback_data=f"sum&{video_id}&en&{transcript_request_id}")])
-        keyboard.append([InlineKeyboardButton("Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}")])
+            keyboard.append([InlineKeyboardButton(f"Summarize in {original_language_name}", callback_data=f"sum&{video_id}&orig&{transcript_request_id}&{original_language}")])
+        keyboard.append([InlineKeyboardButton(f"Summarize in English", callback_data=f"sum&{video_id}&en&{transcript_request_id}&{original_language}")])
+        keyboard.append([InlineKeyboardButton(f"Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}&{original_language}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("🔮 Would you like a summary?", reply_markup=reply_markup)
 
@@ -497,34 +525,10 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
     user = query.from_user
     user_id = query.from_user.id
     logger.info(f"Query data with video_id, language, transcript_request_id: {query.data}")
-    video_id, language, transcript_request_id = query.data.split('&')[1:4]
+    video_id, language, transcript_request_id, original_language = query.data.split('&')[1:5]
     logger.info(f"The following language selected for summary: {language}")
+    logger.info(f"The following language passed to summarization request as original: {original_language}")   
     
-    # base_filename = context.user_data.get('base_filename')
-    base_filename = 'unknown'
-    transcripts = context.user_data.get('transcripts', [])
-
-
-    logger.info(f"Summary requested for video id: {video_id}.")
-    logger.info(f"Total number of transcripts found in user context: {len(transcripts)}")
-
-    if transcripts and len(transcripts) > 0:
-        logger.info(f"The first available trascript video id: {transcripts[0].get('video_id', 'unknown')} and filename {transcripts[0].get('filename', 'unknown')}")
-
-    transcript = None
-
-    for t in transcripts:
-        if t.get('video_id') == video_id and t.get('type') == 'transcript':
-            logger.info(f"Found matching transcript for video {video_id} in user context.")
-            transcript = t
-            base_filename = t.get('base_filename')
-            break
-    
-    if not transcript:
-        logger.info(f"No matching transcript found for video {video_id} in user context.")
-        transcripts = None
-
-
     model = MODEL_TO_USE  # Use the model specified in the config
 
     summary_properties = {
@@ -600,13 +604,61 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         )
         return
     
-    elif transcripts:
+
+    # base_filename = context.user_data.get('base_filename')
+    base_filename = 'unknown'
+    transcripts = context.user_data.get('transcripts', [])
+    logger.info(f"Summary requested for video id: {video_id}.")
+    logger.info(f"Total number of transcripts found in user context: {len(transcripts)}")
+
+    if transcripts and len(transcripts) > 0:
+        logger.info(f"The first trascript in user context has video id: {transcripts[0].get('video_id', 'unknown')} and filename {transcripts[0].get('filename', 'unknown')}")
+
+    transcript = None
+
+    for t in transcripts:
+        if t.get('video_id') == video_id and t.get('type') == 'transcript' and t.get('normalized_language_code') == original_language:
+            logger.info(f"Found matching transcript for video {video_id} in user context.")
+            transcript = t
+            base_filename = t.get('base_filename')
+            break
+    
+    if not transcript:
+        logger.info(f"No matching transcript found for video {video_id} in user context.")
+        transcripts = None
+
+    if not transcripts:
+        logger.info(f"No transcripts found in user context for video {video_id}. Attempting to fetch from DB.")
+
+        try:
+            transcripts = await get_existing_transcripts_async(video_id)
+        except Exception as e:
+            logger.error(f"Failed to fetch existing transcripts from DB for video {video_id}: {e}")
+            transcripts = None
+
+        if transcripts:
+            logger.info(f"Found existing transcripts in DB for video {video_id}.")
+            logger.info(f"Number of existing transcripts found: {len(transcripts)}")
+
+            for t in transcripts:
+                if t.get('is_generated') == True and t.get('type') == 'transcript' and t.get('normalized_language_code') == original_language:
+                    logger.info(f"Found matching transcript for video {video_id} in DB.")
+                    transcript = t
+                    base_filename = t.get('base_filename')
+                    break
+            
+            if not transcript:
+                logger.info(f"No matching transcript found for video {video_id} in DB.")
+                transcripts = None
+
+
+    if transcripts:
         logger.info(f"No existing summary found in DB for video {video_id} in language {language} and model {model}. Proceeding to generate a new summary.")
         
-
         if transcript:
-            logger.info(f"Proceeding with summary for transcript from user context with video id: {transcript.get('video_id')}.")
-            original_language = transcript.get('normalized_language_code', 'en')
+            logger.info(f"Proceeding with summary for transcript from user context or DB with video id: {transcript.get('video_id')}.")
+            if not original_language:
+                original_language = transcript.get('normalized_language_code', 'en')
             text = transcript.get('text')
             logger.info(f"Transcript found in user context for original language: {original_language}")
             # Handle summarization request
@@ -624,7 +676,7 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
 
                 track_event(
                     user_id=user.id,
-                    event_type="handle_summarization_summary_processed_from_user_context",
+                    event_type="handle_summarization_summary_processed_from_user_context_or_db",
                     event_properties={
                         "username": user.username,
                         "is_bot": user.is_bot,
@@ -643,10 +695,11 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
                 logger.error(f"Failed to produce summary from data in user context: {e}")
 
         else:
-            logger.error(f"No transcript found in user context for video {video_id}. Failed to generate summary.")
+            logger.error(f"No transcript found in user context or DB for video {video_id}. Failed to generate summary.")
+
 
     else:
-        logger.info(f"No transcripts found in user context for {video_id}. Proceeding to read from file on disk.")
+        logger.info(f"No transcripts found in user context or DB for {video_id}. Proceeding to read from file on disk.")
 
         try:
             # Ensure transcript_request_id is an integer
@@ -667,13 +720,14 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
                 # Sanitize the base filename
                 base_filename = sanitize_filename(f"{channel_name}_{video_title}")
 
-
-                original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
+                if not original_language:
+                    original_language = normalize_language_code(video_details['snippet']["defaultAudioLanguage"])
                 if original_language:
                     summary_properties['language'] = original_language
                     logger.info(f"Original language determined as: {original_language}")
             except:
-                original_language = next(iter(get_all_transcripts(video_id))).language_code  # Get the original language code
+                if not original_language:
+                    original_language = next(iter(get_all_transcripts(video_id))).language_code  # Get the original language code
                 summary_properties['language'] = original_language
                 logger.warning(f"Original language could not be determined. Falling back to first random: {original_language}")
 
@@ -835,7 +889,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("proxy", proxy_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_youtube_link))
-    application.add_handler(CallbackQueryHandler(handle_summarization_button))
+    application.add_handler(CallbackQueryHandler(handle_summarization_button, pattern="^sum&"))
     application.add_error_handler(error_handler)
 
     # Start the bot
