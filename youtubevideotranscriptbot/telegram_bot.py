@@ -12,7 +12,7 @@ from transcript import get_all_transcripts, save_transcripts, test_proxy
 from summarize import handle_summarization_request
 from duration import format_duration
 from analytics import track_event
-from utils import sanitize_filename, get_original_language, normalize_language_code, create_emoji_friendly_pdf_with_weasyprint
+from utils import sanitize_filename, get_original_language, normalize_language_code, create_emoji_friendly_pdf_with_weasyprint, create_emoji_friendly_pdf_with_weasyprint_async
 from languages import languages
 import openai
 import aiofiles
@@ -403,11 +403,24 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
                         filename = f"{base_filename}_{transcript.get('normalized_language_code')}.txt"
                     
                     logger.info(f"Sending transcript for language: {language_code}")
-                    # Use BytesIO for binary mode (recommended for Telegram)
-                    file_obj = io.BytesIO(formatted_transcript.encode('utf-8'))
-                    file_obj.name = filename  # Telegram uses this as the filename
-                    logger.info(f"Sending transcript file: {filename} to user {user_id}.")
-                    msg = await update.message.reply_document(document=InputFile(file_obj), caption=f"{filename}")
+
+                    try: 
+                        pdf_file = await create_emoji_friendly_pdf_with_weasyprint_async(f"{video_info}\n\n{formatted_transcript}")
+                        pdf_filename = filename[:-3] + "pdf"  # Set the filename for the PDF
+                        logger.info(f"Sending PDF transcript file: {pdf_filename} to user {user_id}.")
+
+                        msg = await context.bot.send_document(
+                            chat_id=update.message.chat_id,
+                            document=InputFile(pdf_file, filename=pdf_filename),
+                            caption=f"{pdf_filename}"
+                        )
+                    except Exception as e:
+                        # Use BytesIO for binary mode (recommended for Telegram)
+                        file_obj = io.BytesIO(formatted_transcript.encode('utf-8'))
+                        file_obj.name = filename  # Telegram uses this as the filename
+                        logger.error(f"Failed to send PDF transcript file {pdf_filename}: {e}")
+                        logger.info(f"Sending TXT transcript file: {filename} to user {user_id}.")
+                        msg = await update.message.reply_document(document=InputFile(file_obj), caption=f"{filename}")
 
                     track_event(
                         user_id=user.id,
@@ -1009,7 +1022,7 @@ async def handle_show_full_video_description_button(update: Update, context: Cal
             video_info_short = video_info_full_description.split("<b>📝 Description</b>:")[0]
 
         try:
-            pdf_file = create_emoji_friendly_pdf_with_weasyprint(video_info_full_description)
+            pdf_file = await create_emoji_friendly_pdf_with_weasyprint_async(video_info_full_description)
             # pdf_file = convert_to_pdf_xhtml2pdf("Example text for testing")
             if video_details:
                 logger.info(f"Video details for video {video_id} and PDF file name: {str(video_details)[:300]}.")

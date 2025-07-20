@@ -162,3 +162,8 @@ def create_emoji_friendly_pdf_with_weasyprint(html_content, output_filename=None
             f.write(pdf_bytes)
     
     return pdf_bytes
+
+
+async def create_emoji_friendly_pdf_with_weasyprint_async(html_content, output_filename=None):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, create_emoji_friendly_pdf_with_weasyprint, html_content, output_filename)
