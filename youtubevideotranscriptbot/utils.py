@@ -117,14 +117,14 @@ def create_emoji_friendly_pdf_with_weasyprint(html_content, output_filename=None
     }
     
     body {
-        font-family: "DejaVu Sans", sans-serif;
+        font-family: "Noto Sans","DejaVu Sans", sans-serif;
         font-size: 12pt;
         line-height: 1.5;
         color: #333;
     }
     
     h1, h2, h3 {
-        font-family: "DejaVu Sans", sans-serif;
+        font-family: "Noto Sans","DejaVu Sans", sans-serif;
         color: #222;
     }
     

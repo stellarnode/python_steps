@@ -1,6 +1,31 @@
-# This is Dockerfile
 # Use an official Python runtime as a parent image
 FROM python:3.10-slim
+
+# Install system dependencies for WeasyPrint and fonts
+RUN apt-get update && apt-get install -y \
+    # WeasyPrint dependencies
+    libpango-1.0-0 \
+    libharfbuzz0b \
+    libpangoft2-1.0-0 \
+    libfontconfig1 \
+    libcairo2 \
+    libgdk-pixbuf2.0-0 \
+    libgtk-3-0 \
+    # Font packages for emoji support
+    fonts-dejavu-core \
+    fonts-dejavu-extra \
+    fonts-noto-core \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    fonts-noto-extra \
+    fonts-liberation \
+    fontconfig \
+    # Clean up
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Update font cache
+RUN fc-cache -fv
 
 # Set the working directory in the container
 WORKDIR /app
@@ -29,3 +54,5 @@ RUN python3 -c "import config; import os; " \
 
 # Run the bot
 CMD ["python", "telegram_bot.py"]
+
+
