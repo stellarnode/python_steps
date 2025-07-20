@@ -33,6 +33,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+logging.getLogger('fontTools.subset').setLevel(logging.ERROR)
+logging.disable(logging.DEBUG)
 
 async def error_handler(update, context):
     logger.error(f"Exception while handling an update: {context.error}")

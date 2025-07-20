@@ -49,8 +49,8 @@ def get_model_params(model=MODEL_TO_USE):
             "cost_per_100k_tokens_input": 0.027,
             "cost_per_100k_tokens_output": 0.11
         }
-    elif "r1" in model.lower():
-        logger.info(f"Using DeepSeek {model}.")
+    elif "r1" in model.lower() or "deepseek/" in model.lower():
+        logger.info(f"Using OpenRouter model {model}.")
         # This is the R1 model, which is free to use through OpenRouter
         return {
             "tokens_per_chunk": 150000,

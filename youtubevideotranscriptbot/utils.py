@@ -12,6 +12,8 @@ import io
 from io import BytesIO
 
 logger = logging.getLogger(__name__)
+logging.getLogger('fontTools.subset').setLevel(logging.ERROR)
+logging.disable(logging.DEBUG)
 
 # Normalize language codes (e.g., "en-US" -> "en")
 def normalize_language_code(language_code):
