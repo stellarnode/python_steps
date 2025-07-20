@@ -11,5 +11,6 @@ aiofiles>=0.4.0
 amplitude-analytics==1.1.5
 supadata==1.2.1
 python-dotenv
+weasyprint>=60.2
 
 

@@ -68,8 +68,8 @@ def store_video(video_id, video_details, subscribers):
     try:
         with db_cursor() as cursor:
             query = """
-            INSERT INTO videos (video_id, video_title, channel_name, subscribers, view_count, like_count, comment_count, description, video_link)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO videos (video_id, video_title, channel_name, subscribers, view_count, like_count, comment_count, duration, description, video_link)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
             video_title = VALUES(video_title),
             channel_name = VALUES(channel_name),
@@ -77,6 +77,7 @@ def store_video(video_id, video_details, subscribers):
             view_count = VALUES(view_count),
             like_count = VALUES(like_count),
             comment_count = VALUES(comment_count),
+            duration = VALUES(duration),
             description = VALUES(description),
             video_link = VALUES(video_link)
             """
@@ -89,6 +90,7 @@ def store_video(video_id, video_details, subscribers):
                 video_details['statistics'].get('viewCount', 'N/A'),
                 video_details['statistics'].get('likeCount', 'N/A'),
                 video_details['statistics'].get('commentCount', 'N/A'),
+                video_details.get('contentDetails', {}).get('duration', 'PT0S'),
                 video_details['snippet'].get('description', ''),
                 f"https://www.youtube.com/watch?v={video_id}"
             ))
@@ -285,3 +287,32 @@ def get_existing_transcripts(video_id, normalized_language_code=None):
 async def get_existing_transcripts_async(video_id, normalized_language_code=None):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, get_existing_transcripts, video_id, normalized_language_code)
+
+
+async def get_video_by_id_async(video_id):
+    """
+    Asynchronously fetches a video object from the videos table by video_id.
+    Returns a dict with video details if found, else None.
+    """
+    def get_video_by_id(video_id):
+        try:
+            with db_cursor() as cursor:
+                query = """
+                SELECT video_id, video_title, channel_name, subscribers, view_count, like_count, comment_count, duration, description, video_link
+                FROM videos
+                WHERE video_id = %s
+                LIMIT 1
+                """
+                cursor.execute(query, (video_id,))
+                row = cursor.fetchone()
+                if row:
+                    keys = ["video_id", "video_title", "channel_name", "subscribers", "view_count", "like_count", "comment_count", "duration", "description", "video_link"]
+                    return dict(zip(keys, row))
+                else:
+                    return None
+        except Exception as e:
+            logger.error(f"Failed to fetch video for video_id={video_id}: {e}")
+            return None
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_video_by_id, video_id)

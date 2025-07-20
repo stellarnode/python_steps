@@ -47,7 +47,7 @@ def _summarize_sync(chunk, language, model=MODEL_TO_USE):
         system_role = "You are a master of extracting pearls of knowledge from YouTube video transcripts. You grasp the very essence and distill it in a concise form for users. You always provide the response in the same language in which the transcript is provided. Your answers are always clear, concise and nicely formatted."
         prompt = (
             f"If I did not have time to read this YouTube video transcript, what are the most important things I absolutely must know. Enlighten me in no more than 200 words. "
-            f"Always provide your response in the same language as the transcript. In this case it might be in '{language}' language. Here is the transcript itself:\n\n{chunk}"
+            f"Always provide your response in the same language as the transcript. In this case it might be in '{language}' language. Use emojis to structure the summary if and when appropriate. Never reference this prompt. Get straight to the point without intros. Here is the transcript itself:\n\n{chunk}"
         )
         # prompt = (
         #     f"If I did not have time to read this YouTube video transcript, what are the most important things I absolutely must know. Enlighten me in no more than 200 words. "

@@ -5,14 +5,14 @@ import logging
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 from telegram.error import TelegramError
-from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE, ENVIRONMENT, AMPLITUDE_API_KEY, MAX_TRANSCRIPTS_IN_USER_CONTEXT
-from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async, get_summary_by_video_language_async, get_existing_transcripts_async, insert_transcript_async
+from config import TELEGRAM_TOKEN, OPENAI_API_KEY, MODEL_TO_USE, ENVIRONMENT, AMPLITUDE_API_KEY, MAX_TRANSCRIPTS_IN_USER_CONTEXT, MAX_DESCRIPTIONS_IN_USER_CONTEXT
+from database import store_user, store_video, store_transcript_request, get_db_connection, store_summarization_request, store_user_async, store_video_async, store_transcript_request_async, store_summarization_request_async, get_summary_by_video_language_async, get_existing_transcripts_async, insert_transcript_async, get_video_by_id_async
 from youtube_api import extract_video_id, get_video_details, get_channel_subscribers
 from transcript import get_all_transcripts, save_transcripts, test_proxy
 from summarize import handle_summarization_request
 from duration import format_duration
 from analytics import track_event
-from utils import sanitize_filename, get_original_language, normalize_language_code
+from utils import sanitize_filename, get_original_language, normalize_language_code, create_emoji_friendly_pdf_with_weasyprint
 from languages import languages
 import openai
 import aiofiles
@@ -194,6 +194,16 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         f"<b>👁️ Views</b>: {int(statistics.get('viewCount', 0)):,}\n\n"
         f"<b>👍 Likes</b>: {int(statistics.get('likeCount', 0)):,}\n\n"
         f"<b>💬 Comments</b>: {int(statistics.get('commentCount', 0)):,}\n\n"
+        f"<b>⏱️ Duration</b>: {format_duration(content_details.get('duration', 'PT0S'))}\n"  # Add duration
+    )
+
+    video_info_full_description = (
+        f"<b>📺 Title</b>: {snippet.get('title', 'N/A')}\n\n"
+        f"<b>🎙️ Channel</b>: {snippet.get('channelTitle', 'N/A')}\n\n"
+        f"<b>👥 Subscribers</b>: {int(subscribers):,}\n\n"
+        f"<b>👁️ Views</b>: {int(statistics.get('viewCount', 0)):,}\n\n"
+        f"<b>👍 Likes</b>: {int(statistics.get('likeCount', 0)):,}\n\n"
+        f"<b>💬 Comments</b>: {int(statistics.get('commentCount', 0)):,}\n\n"
         f"<b>⏱️ Duration</b>: {format_duration(content_details.get('duration', 'PT0S'))}\n\n"  # Add duration
         f"<b>📝 Description</b>: {snippet.get('description', 'N/A')}"
     )
@@ -204,11 +214,36 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
     except Exception as e:
         logger.warning(f"Failed to delete the temporary status message: {e}.")
 
-    # Split the message into chunks of 4096 characters
-    max_length = 4096
-    for i in range(0, len(video_info), max_length):
-        chunk = video_info[i:i + max_length]
-        await update.message.reply_text(chunk, parse_mode="HTML")  # Use HTML for bold formatting
+    video_info_event_properties = {
+            "username": user.username,
+            "is_bot": user.is_bot,
+            "language_code": user.language_code,
+            "is_premium": user.is_premium,
+            "video_url": video_url,
+            "video_id": video_id,
+            "environment": ENVIRONMENT
+        }
+
+
+    video_descriptions_in_context = context.user_data.get('video_descriptions', {})
+    video_info_message_id = None
+
+    if snippet.get('description', 'N/A') != 'N/A':
+        # Store the full description in user context
+        video_descriptions_in_context.update({video_id: {"video_info_full_description": video_info_full_description, 
+                                                        "video_info_event_properties": video_info_event_properties,
+                                                        "video_info_message_id": video_info_message_id}})
+        context.user_data['video_descriptions'] = video_descriptions_in_context
+        logger.info(f"Stored video description for video {video_id} in user context. Current count: {len(context.user_data.get('video_descriptions', {}))}")
+
+        keyboard = []
+        keyboard.append([InlineKeyboardButton(f"Show full description", callback_data=f"desc&{video_id}&{video_info_message_id}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(video_info, parse_mode="HTML", reply_markup=reply_markup)
+
+    else:
+        video_info_message = await update.message.reply_text(video_info, parse_mode="HTML")
+        video_info_message_id = video_info_message.message_id
 
     track_event(
         user_id=user.id,
@@ -223,6 +258,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
             "environment": ENVIRONMENT
         }
     )
+
 
     # await update.message.reply_text("Preparing transcripts...")
     # Send the temporary status message and store the message ID
@@ -463,7 +499,7 @@ async def handle_youtube_link(update: Update, context: CallbackContext):
         keyboard.append([InlineKeyboardButton(f"Summarize in English", callback_data=f"sum&{video_id}&en&{transcript_request_id}&{original_language}")])
         keyboard.append([InlineKeyboardButton(f"Summarize in Russian", callback_data=f"sum&{video_id}&ru&{transcript_request_id}&{original_language}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("🔮 Would you like a summary?", reply_markup=reply_markup)
+        await update.message.reply_text("🔮 <b>Would you like a summary?</b>", parse_mode="HTML", reply_markup=reply_markup)
 
         track_event(
             user_id=user.id,
@@ -878,6 +914,178 @@ async def handle_summarization_button(update: Update, context: CallbackContext):
         return
 
 
+# Handle show full video description button
+async def handle_show_full_video_description_button(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+    user_id = query.from_user.id
+    logger.info(f"Query data for full video details request: {query.data}")
+    video_id, video_info_message_id = query.data.split('&')[1:3]
+    logger.info(f"Full video details requested for video: {video_id}")
+
+    user_context_data = context.user_data.get('video_descriptions', {})
+    video_info_user_context_data = user_context_data.get(video_id, {})
+    video_info_full_description = video_info_user_context_data.get('video_info_full_description', '')
+
+    video_info_event_properties = video_info_user_context_data.get('video_info_event_properties', {})
+    if not video_info_message_id:
+        video_info_message_id = video_info_user_context_data.get('video_info_message_id', None)
+    
+    if video_info_full_description:
+        logger.info(f"Full video description found in user context for video {video_id}.")
+
+    video_info_short = ""
+    video_details = {}
+
+    if not video_info_full_description:
+        logger.error(f"No full video description found in user context for video {video_id}.")
+        logger.info(f"Attempting to fetch video details from DB for video {video_id}.")
+
+        video_details = await get_video_by_id_async(video_id)
+
+        if not video_details:
+            logger.error(f"Video details not found in DB for video {video_id}.")
+
+            if video_info_event_properties:
+                track_event(
+                    user_id=user_id,
+                    event_type="handle_youtube_link_video_details_full_description_failed",
+                    event_properties=video_info_event_properties
+                )
+            else:
+                track_event(
+                    user_id=user_id,
+                    event_type="handle_youtube_link_video_details_full_description_failed",
+                    event_properties={
+                        "username": user.username,
+                        "is_bot": user.is_bot,
+                        "language_code": user.language_code,
+                        "is_premium": user.is_premium,
+                        "video_id": video_id,
+                        "environment": ENVIRONMENT
+                    }
+                )
+            try:
+                user_context_data.pop(video_id)
+                if len(user_context_data) > 0:
+                    context.user_data['video_descriptions'] = user_context_data
+            except Exception as e:
+                logger.error(f"Failed to remove video description from user context: {e}")
+
+        logger.info(f"Video details fetched from DB for video {video_id}: {str(video_details)[:300]}.")
+
+        video_info_short = (
+            f"<b>📺 Title</b>: {video_details.get('video_title', 'N/A')}\n\n"
+            f"<b>🎙️ Channel</b>: {video_details.get('channel_name', 'N/A')}\n\n"
+            f"<b>👥 Subscribers</b>: {int(video_details.get('subscribers', 0)):,}\n\n"
+            f"<b>👁️ Views</b>: {int(video_details.get('view_count', 0)):,}\n\n"
+            f"<b>👍 Likes</b>: {int(video_details.get('like_count', 0)):,}\n\n"
+            f"<b>💬 Comments</b>: {int(video_details.get('comment_count', 0)):,}\n\n"
+            f"<b>⏱️ Duration</b>: {format_duration(video_details.get('duration', 'PT0S'))}\n\n" 
+        )
+
+        video_info_full_description = (
+            f"<b>📺 Title</b>: {video_details.get('video_title', 'N/A')}\n\n"
+            f"<b>🎙️ Channel</b>: {video_details.get('channel_name', 'N/A')}\n\n"
+            f"<b>👥 Subscribers</b>: {int(video_details.get('subscribers', 0)):,}\n\n"
+            f"<b>👁️ Views</b>: {int(video_details.get('view_count', 0)):,}\n\n"
+            f"<b>👍 Likes</b>: {int(video_details.get('like_count', 0)):,}\n\n"
+            f"<b>💬 Comments</b>: {int(video_details.get('comment_count', 0)):,}\n\n"
+            f"<b>⏱️ Duration</b>: {format_duration(video_details.get('duration', 'PT0S'))}\n\n" 
+            f"<b>📝 Description</b>: {video_details.get('description', 'N/A')}"
+        )
+    
+
+    if len(video_info_full_description) < 4096:
+
+        await query.edit_message_text(video_info_full_description, parse_mode="HTML")
+        logger.info(f"Full video description sent to user {user_id} for video {video_id}.")
+
+    else:
+
+        if not video_info_short:
+            video_info_short = video_info_full_description.split("<b>📝 Description</b>:")[0]
+
+        try:
+            pdf_file = create_emoji_friendly_pdf_with_weasyprint(video_info_full_description)
+            # pdf_file = convert_to_pdf_xhtml2pdf("Example text for testing")
+            if video_details:
+                logger.info(f"Video details for video {video_id} and PDF file name: {str(video_details)[:300]}.")
+                filename = f"{video_details.get('video_title', 'Full')}_video_details_{str(video_details.get('video_id')) if video_details and 'video_id' in video_details else str(video_id)}.pdf"
+            else:
+                logger.info(f"No video details for video {video_id} and PDF file name.")
+                filename = f"Video_Details_for_video_{str(video_id)}.pdf"
+            # await query.message.reply_document(document=InputFile(pdf_file, filename=filename), caption="📄 Full description as PDF")
+
+            edited_msg = await query.edit_message_text(f"{video_info_short}───────\nThis video description is too long to fit one Telegram message. See the PDF in a separate message below with the full text 👇", parse_mode="HTML")
+            # Send PDF and make sure it's directly following the edited message
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=InputFile(pdf_file, filename=filename),
+                caption=f"📄 Full description for the video above 👆",
+                reply_to_message_id=edited_msg.message_id  # Ensures order
+            )
+
+            logger.info(f"Sent PDF description to user {user_id} for video {str(video_id)}.")
+                                       
+        except Exception as e:
+            logger.error(f"Failed to send full video description in PDF for video {video_id} to user {user_id}: {e}")
+            logger.info(f"Sending full video description in chunks for video {video_id}.")
+
+            await query.edit_message_text(f"{video_info_short}───────\nThis video description is too long to fit in one Telegram message. See the messages below for the full text 👇", parse_mode="HTML")
+            
+            follow_up_message = "Here’s the full description for this video 👆 It’s too long for one Telegram message, so I split it into several parts.\n\n───────\n\n"
+            max_length = 4096 - len(follow_up_message) - 2  # Adjust max_length to account for the follow-up message
+            for idx, i in enumerate(range(0, len(video_info_full_description), max_length)):
+                chunk = video_info_full_description[i:i + max_length]
+                if idx == 0:
+                    await query.message.reply_text(f"{follow_up_message}{chunk}", parse_mode="HTML", reply_to_message_id=query.message.message_id)
+                else:
+                    await query.message.reply_text(chunk, parse_mode="HTML")
+            logger.info(f"Full video description sent to user {user_id} for video {video_id}.")
+
+    if video_info_event_properties:
+        track_event(
+            user_id=user_id,
+            event_type="handle_youtube_link_video_details_full_description_sent",
+            event_properties=video_info_event_properties
+        )   
+    else:
+        track_event(
+            user_id=user_id,
+            event_type="handle_youtube_link_video_details_full_description_sent",
+            event_properties={
+                "username": user.username,
+                "is_bot": user.is_bot,
+                "language_code": user.language_code,
+                "is_premium": user.is_premium,
+                "video_id": video_id,
+                "environment": ENVIRONMENT
+            }
+        )
+
+    try:
+        logger.info(f"Current video descriptions in user context: {len(context.user_data.get('video_descriptions', {}))}")
+        user_context_data.pop(video_id)
+        if len(user_context_data) > 0:
+            context.user_data['video_descriptions'] = user_context_data
+        logger.info(f"New video descriptions len in user context: {len(context.user_data.get('video_descriptions', {}))}")
+
+        if len(context.user_data.get('video_descriptions', {})) > MAX_DESCRIPTIONS_IN_USER_CONTEXT:
+            user_context_data = context.user_data.get('video_descriptions', {})
+            first_key = next(iter(user_context_data))
+            user_context_data.pop(video_id)
+            context.user_data['video_descriptions'] = user_context_data
+            logger.info(f"Removed first video_description from user context. Now len is: {len(context.user_data.get('video_descriptions', {}))}.")
+    except Exception as e:
+        logger.error(f"Failed to remove video description from user context: {e}")
+        logger.info(f"Now video_descriptions object len in user context: {len(context.user_data.get('video_descriptions', {}))}")
+
+    return
+
+
 # Main function to start the bot
 def main():
     logger.info("Starting the bot...")
@@ -889,6 +1097,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("proxy", proxy_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_youtube_link))
+    application.add_handler(CallbackQueryHandler(handle_show_full_video_description_button, pattern="^desc&"))
     application.add_handler(CallbackQueryHandler(handle_summarization_button, pattern="^sum&"))
     application.add_error_handler(error_handler)
 

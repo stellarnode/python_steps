@@ -6,6 +6,10 @@ import tiktoken
 import math
 import asyncio
 import re
+import weasyprint
+from weasyprint import HTML
+import io
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
@@ -93,3 +97,68 @@ def get_original_language(snippet, transcripts=None):
         pass
 
     return original_language
+
+
+def create_emoji_friendly_pdf_with_weasyprint(html_content, output_filename=None):
+
+    # Convert plain URLs to clickable links if not already linked
+    url_pattern = r'(https?://[^\s<>"]+)'
+    html_content = re.sub(url_pattern, r'<a href="\1">\1</a>', html_content)
+    
+    # Convert \n\n to paragraph breaks, \n to line breaks
+    html_content = html_content.replace('\n\n', '</p><p>').replace('\n', '<br>')
+    html_content = f'<p>{html_content}</p>'
+
+
+    css = """
+    @page {
+        size: A5 portrait;
+        margin: 20mm;
+    }
+    
+    body {
+        font-family: "DejaVu Sans", sans-serif;
+        font-size: 12pt;
+        line-height: 1.5;
+        color: #333;
+    }
+    
+    h1, h2, h3 {
+        font-family: "DejaVu Sans", sans-serif;
+        color: #222;
+    }
+    
+    p {
+        margin: 0 0 1em 0;
+    }
+
+    a {
+        color: #0066cc;
+        text-decoration: underline;
+    }
+
+    br {
+        line-height: 1.2;
+    }
+    """
+    
+    full_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>{css}</style>
+    </head>
+    <body>
+        {html_content}
+    </body>
+    </html>
+    """
+    
+    pdf_bytes = weasyprint.HTML(string=full_html).write_pdf(presentational_hints=True)
+    
+    if output_filename:
+        with open(output_filename, 'wb') as f:
+            f.write(pdf_bytes)
+    
+    return pdf_bytes
